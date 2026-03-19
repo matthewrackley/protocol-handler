@@ -1,0 +1,22 @@
+{
+  "name": "protocol-handler",
+  "version": "1.0.0",
+  "description": "A generic protocol handler library for HTTP and WebSocket requests.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "protocol",
+    "http",
+    "websocket",
+    "dispatcher",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

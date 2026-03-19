@@ -1,0 +1,11 @@
+"use strict";
+// Entry point for the protocol-handler library.  Consumers should
+// import from this file rather than referencing deep module
+// internals directly.  The factory function `createProtocolHandler`
+// constructs a ready‑to‑use handler based on user‑defined HTTP and
+// WebSocket handlers.  Processor interfaces and type aliases are
+// also exported for convenience.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createProtocolHandler = void 0;
+var createProtocolHandler_1 = require("./factory/createProtocolHandler");
+Object.defineProperty(exports, "createProtocolHandler", { enumerable: true, get: function () { return createProtocolHandler_1.createProtocolHandler; } });
