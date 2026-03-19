@@ -17,7 +17,8 @@ export type HttpMethod =
   | 'POST'
   | 'PUT'
   | 'PATCH'
-  | 'DELETE';
+  | 'DELETE'
+  | 'UPDATE';
 
 /**
  * Valid WebSocket actions used to discriminate between connection
@@ -30,7 +31,7 @@ export type WsAction = 'connect' | 'send' | 'close';
 /**
  * Base fields required by routed handler requests.
  */
-export interface RoutedRequest<T extends string = string> {
+export interface RoutedRequest<T> {
   handler: T;
 }
 
@@ -40,7 +41,7 @@ export interface RoutedRequest<T extends string = string> {
  * `endpoint` is required because the core normaliser can derive `url`
  * from endpoint + default host when `url` is omitted.
  */
-export interface HttpHandlerRequest<T extends string = string> extends RoutedRequest<T> {
+export interface HttpHandlerRequest<T> extends RoutedRequest<T> {
   method: HttpMethod;
   endpoint: string;
   url?: string;
@@ -52,7 +53,7 @@ export interface HttpHandlerRequest<T extends string = string> extends RoutedReq
 /**
  * Canonical WebSocket connect request accepted by protocol handlers.
  */
-export interface WsConnectHandlerRequest<T extends string = string> extends RoutedRequest<T> {
+export interface WsConnectHandlerRequest<T> extends RoutedRequest<T> {
   action: 'connect';
   url?: string;
   protocols?: string | string[];
@@ -61,7 +62,7 @@ export interface WsConnectHandlerRequest<T extends string = string> extends Rout
 /**
  * Canonical WebSocket send request accepted by protocol handlers.
  */
-export interface WsSendHandlerRequest<T extends string = string> extends RoutedRequest<T> {
+export interface WsSendHandlerRequest<T> extends RoutedRequest<T> {
   action: 'send';
   connectionId: string;
   event: string;
@@ -71,7 +72,7 @@ export interface WsSendHandlerRequest<T extends string = string> extends RoutedR
 /**
  * Canonical WebSocket close request accepted by protocol handlers.
  */
-export interface WsCloseHandlerRequest<T extends string = string> extends RoutedRequest<T> {
+export interface WsCloseHandlerRequest<T> extends RoutedRequest<T> {
   action: 'close';
   connectionId: string;
   code?: number;
@@ -81,7 +82,7 @@ export interface WsCloseHandlerRequest<T extends string = string> extends Routed
 /**
  * Canonical WebSocket request union accepted by protocol handlers.
  */
-export type WsHandlerRequest<T extends string = string> =
+export type WsHandlerRequest<T> =
   | WsConnectHandlerRequest<T>
   | WsSendHandlerRequest<T>
   | WsCloseHandlerRequest<T>;
@@ -89,7 +90,7 @@ export type WsHandlerRequest<T extends string = string> =
 /**
  * Canonical protocol request union accepted by dispatch.
  */
-export type ProtocolHandlerRequest<T extends string = string> = HttpHandlerRequest<T> | WsHandlerRequest<T>;
+export type ProtocolHandlerRequest<T> = HttpHandlerRequest<T> | WsHandlerRequest<T>;
 
 /**
  * Generic object response envelope for consumers who prefer
@@ -107,3 +108,44 @@ export interface ResponseEnvelope<TData = unknown> {
  * synchronous and asynchronous implementations.
  */
 export type MaybePromise<T> = T | Promise<T>;
+
+
+export type AnyHandler = (...args: any[]) => any;
+export type RemoveCtx<F> =
+  F extends (ctx: any, ...args: infer A) => infer R
+    ? (...args: A) => R
+    : F extends (...args: infer A) => infer R
+    ? (...args: A) => R
+    : never;
+
+export type BoundHandlers<F extends Record<string, AnyHandler>> = {
+  [K in keyof F]: RemoveCtx<F[K]>;
+};
+
+export type Handler<
+  T extends object,
+  F extends Record<string, AnyHandler>
+> = Omit<T, "handlers"> & {
+  handlers: BoundHandlers<F>;
+};
+
+
+function createFunc<
+  T extends object,
+  F extends Record<string, (ctx: T, ...args: any[]) => any>
+>(
+  ctx: T,
+  handlers: F
+): Handler<T, F> {
+  const boundHandlers = {} as BoundHandlers<F>;
+
+  for (const key in handlers) {
+    const handler = handlers[key];
+    boundHandlers[key] = ((...args: any[]) => handler(ctx, ...args)) as BoundHandlers<F>[typeof key];
+  }
+
+  return {
+    ...ctx,
+    handlers: boundHandlers,
+  } as Handler<T, F>;
+}

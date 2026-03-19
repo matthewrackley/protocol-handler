@@ -1,3 +1,6 @@
+import { GenericWsHandler } from '../core/ProtocolHandlerCore';
+import { BoundHandlers } from '../types';
+
 /**
  * Input required to establish a WebSocket connection.  The `url`
  * property defines the host to connect to.  The optional `protocols`
@@ -16,10 +19,10 @@ export interface WsConnectInput {
  * handlers to distinguish between different kinds of messages sent
  * through the same channel.
  */
-export interface WsSendInput {
+export interface WsSendInput<R extends object> {
   connectionId: string;
   event: string;
-  payload?: unknown;
+  payload?: R;
 }
 
 /**
@@ -34,6 +37,12 @@ export interface WsCloseInput {
   reason?: string;
 }
 
+export interface WsListenerInput<R extends object> {
+  connectionId: string;
+  event: string;
+  payload?: R;
+}
+
 /**
  * WsProcessor defines the contract for interacting with WebSocket
  * connections.  The protocol handler delegates all low level
@@ -41,7 +50,7 @@ export interface WsCloseInput {
  * this interface, allowing flexible integration with different
  * WebSocket libraries or custom implementations.
  */
-export interface WsProcessor {
+export interface WsProcessor<R extends Record<string, GenericWsHandler<any>>> {
   /**
    * Open a new WebSocket connection.  Implementations should
    * allocate and return a unique identifier for the connection,
@@ -55,7 +64,7 @@ export interface WsProcessor {
    * `event` field is arbitrary and may be interpreted by higher
    * level handlers to determine routing on the server side.
    */
-  send(input: WsSendInput): Promise<unknown>;
+  send<R extends object>(input: WsSendInput<R>): Promise<R>;
 
   /**
    * Gracefully close an existing WebSocket connection.  Implementations
@@ -63,4 +72,16 @@ export interface WsProcessor {
    * connection.
    */
   close(input: WsCloseInput): Promise<unknown>;
+  handlers: BoundHandlers<R>;
+
+  /**
+   * Register a listener for incoming WebSocket messages.  The
+   * protocol handler will invoke this listener whenever a message is
+   * received on any active connection, allowing the handler to route
+   * the message to the appropriate high level handler based on its
+   * content.
+   */
+
+  on(type: 'message', listener: <R extends object>(input: WsListenerInput<R>) => void): void;
+  once(type: 'message', listener: <R extends object>(input: WsListenerInput<R>) => void): void;
 }

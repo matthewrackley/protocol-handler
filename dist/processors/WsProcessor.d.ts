@@ -31,6 +31,11 @@ export interface WsCloseInput {
     code?: number;
     reason?: string;
 }
+export interface WsListenerInput {
+    connectionId: string;
+    event: string;
+    payload?: unknown;
+}
 /**
  * WsProcessor defines the contract for interacting with WebSocket
  * connections.  The protocol handler delegates all low level
@@ -38,7 +43,7 @@ export interface WsCloseInput {
  * this interface, allowing flexible integration with different
  * WebSocket libraries or custom implementations.
  */
-export interface WsProcessor {
+export interface WsProcessor<T extends Record<string, (...args: any[]) => any>> {
     /**
      * Open a new WebSocket connection.  Implementations should
      * allocate and return a unique identifier for the connection,
@@ -60,4 +65,22 @@ export interface WsProcessor {
      * connection.
      */
     close(input: WsCloseInput): Promise<unknown>;
+    handlers: T;
+    /**
+     * Register a listener for incoming WebSocket messages.  The
+     * protocol handler will invoke this listener whenever a message is
+     * received on any active connection, allowing the handler to route
+     * the message to the appropriate high level handler based on its
+     * content.
+     */
+    on(type: 'message', listener: (input: WsListenerInput) => void): void;
+    once(type: 'message', listener: (input: WsListenerInput) => void): void;
+    /**
+     * Alias for message listeners.
+     */
+    listen(type: 'message', listener: (input: WsListenerInput) => void): void;
+    /**
+     * Alias for one-time message listeners.
+     */
+    listenOnce(type: 'message', listener: (input: WsListenerInput) => void): void;
 }

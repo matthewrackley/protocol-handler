@@ -4,10 +4,10 @@ import {
   ProtocolHandlerCore,
   ProtocolHandlerCoreConfig,
 } from '../core/ProtocolHandlerCore';
-import { ProtocolHandlerRequest } from '../types';
+import { AnyHandler, ProtocolHandlerRequest, WsHandlerRequest } from '../types';
 
-type HandlerRequest<THandler extends (...args: any[]) => any> = Parameters<THandler>[0];
-type HandlerResult<THandler extends (...args: any[]) => any> = ReturnType<THandler>;
+type HandlerParams<THandler extends AnyHandler> = THandler extends (...args: infer U) => any ? U : never;
+type HandlerResult<THandler extends AnyHandler> = ReturnType<THandler>;
 
 type HttpHandlerMap<THttpHandlers extends object> = {
   [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler
@@ -22,14 +22,14 @@ type WsHandlerMap<TWsHandlers extends object> = {
 };
 
 type HttpApi<THttpHandlers extends object> = {
-  [K in keyof THttpHandlers]: (
-    req: HandlerRequest<HttpHandlerMap<THttpHandlers>[K]>
+  [K in keyof THttpHandlers extends string ? keyof THttpHandlers : never]: (
+    req: ProtocolHandlerRequest<K>
   ) => HandlerResult<HttpHandlerMap<THttpHandlers>[K]>;
 };
 
 type WsApi<TWsHandlers extends object> = {
-  [K in keyof TWsHandlers]: (
-    req: HandlerRequest<WsHandlerMap<TWsHandlers>[K]>
+  [K in keyof TWsHandlers extends string ? keyof TWsHandlers : never]: (
+    req: HandlerParams<WsHandlerMap<TWsHandlers>[K]>[0]
   ) => HandlerResult<WsHandlerMap<TWsHandlers>[K]>;
 };
 
@@ -46,8 +46,8 @@ type WsApi<TWsHandlers extends object> = {
  * autocomplete and type safety in consumer code.
  */
 export function createProtocolHandler<
-  THttpHandlers extends object,
-  TWsHandlers extends object
+  THttpHandlers extends Record<string, GenericHttpHandler<any>>,
+  TWsHandlers extends Record<string, GenericWsHandler<any>>
 >(config: ProtocolHandlerCoreConfig<THttpHandlers, TWsHandlers>) {
   const core = new ProtocolHandlerCore(config);
 
@@ -60,8 +60,8 @@ export function createProtocolHandler<
   const httpApi = {} as HttpApi<THttpHandlers>;
   (Object.keys(config.httpHandlers) as (keyof THttpHandlers)[]).forEach(
     (key) => {
-      httpApi[key] = ((
-        req: HandlerRequest<HttpHandlerMap<THttpHandlers>[typeof key]>
+      httpApi[key as typeof key extends string ? typeof key : never] = ((
+        req: ProtocolHandlerRequest<typeof key extends string ? typeof key : never>
       ): HandlerResult<HttpHandlerMap<THttpHandlers>[typeof key]> => {
         // We cast the result of dispatch to the return type of the
         // corresponding handler.  Dispatch returns a value that may be
@@ -71,11 +71,11 @@ export function createProtocolHandler<
         const request = {
           ...req,
           handler: key as string,
-        } as ProtocolHandlerRequest;
+        } as ProtocolHandlerRequest<keyof THttpHandlers>;
         return core.dispatch(request) as unknown as HandlerResult<
           HttpHandlerMap<THttpHandlers>[typeof key]
         >;
-      }) as HttpApi<THttpHandlers>[typeof key];
+      }) as HttpApi<THttpHandlers>[typeof key extends string ? typeof key : never];
     }
   );
 
@@ -84,18 +84,19 @@ export function createProtocolHandler<
   const wsApi = {} as WsApi<TWsHandlers>;
   (Object.keys(config.wsHandlers) as (keyof TWsHandlers)[]).forEach(
     (key) => {
-      wsApi[key] = ((
-        req: HandlerRequest<WsHandlerMap<TWsHandlers>[typeof key]>
+      wsApi[key as typeof key extends string ? typeof key : never] = (((
+        req: HandlerParams<WsHandlerMap<TWsHandlers>[typeof key]>[0]
       ): HandlerResult<WsHandlerMap<TWsHandlers>[typeof key]> => {
         const request = {
           ...req,
           handler: key as string,
-        } as ProtocolHandlerRequest;
+        } as ProtocolHandlerRequest<keyof TWsHandlers>;
         return core.dispatch(request) as unknown as HandlerResult<
           WsHandlerMap<TWsHandlers>[typeof key]
         >;
       }) as WsApi<TWsHandlers>[typeof key];
     }
+
   );
 
   return {
@@ -127,3 +128,51 @@ export function createProtocolHandler<
     ws: wsApi,
   };
 }
+
+const protocolHandler = createProtocolHandler({
+  httpHandlers: {
+    exampleHandler: async (req, ctx) => {
+      // Handler implementation here
+    }
+  },
+  wsHandlers: {
+    exampleWsHandler: async (req, ctx) => {
+      // Handler implementation here
+    }
+  },
+  processors: {
+    http: {
+      value: async (input) => {
+
+      },
+      get: async (input) => {
+
+      }
+    },
+    ws: {
+      fva: async (input: string) => {
+        // WebSocket connect processing logic here
+
+      },
+      connect: async (input) => {
+        // WebSocket connect processing logic here
+        input.protocols;
+      },
+      send: async (input) => {
+        input.action === 'send';
+        // WebSocket send processing logic here
+      },
+      close: (input) => {
+        input.action === 'close';
+        // WebSocket close processing logic here
+      }
+    },
+  defaults: {
+    httpHost: 'https://api.example.com',
+    wsHost: 'wss://ws.example.com'
+  }
+
+}
+});
+
+protocolHandler.http.

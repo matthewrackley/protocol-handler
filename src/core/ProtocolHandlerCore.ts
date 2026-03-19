@@ -1,6 +1,9 @@
 import { HttpProcessor } from '../processors/HttpProcessor';
 import { WsProcessor } from '../processors/WsProcessor';
 import {
+  AnyHandler,
+  BoundHandlers,
+  Handler,
   HttpHandlerRequest,
   MaybePromise,
   ProtocolHandlerRequest,
@@ -14,9 +17,9 @@ import {
  * operations without knowing how the underlying transport is
  * implemented.
  */
-export interface HandlerContext {
-  http: HttpProcessor;
-  ws: WsProcessor;
+export interface HandlerContext<THttpHandlers extends BoundHandlers<any>, TWsHandlers extends BoundHandlers<any>> {
+  http: HttpProcessor<THttpHandlers>;
+  ws: WsProcessor<TWsHandlers>;
   defaults: {
     httpHost: string;
     wsHost: string;
@@ -34,8 +37,8 @@ export type GenericHttpHandler<
   Req extends HttpHandlerRequest = HttpHandlerRequest,
   Res = unknown,
 > = (
+  ctx: HandlerContext<any, any>,
   req: Req,
-  ctx: HandlerContext
 ) => MaybePromise<Res>;
 
 /**
@@ -48,11 +51,13 @@ export type GenericWsHandler<
   Req extends WsHandlerRequest = WsHandlerRequest,
   Res = unknown,
 > = (
+  ctx: HandlerContext,
   req: Req,
-  ctx: HandlerContext
 ) => MaybePromise<Res>;
 
-type HttpHandlerMap<THttpHandlers extends { [K in keyof keyof THttpHandlers extends string ? keyof THttpHandlers : never]: THttpHandlers[keyof THttpHandlers] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never}> = {
+type HttpHandlerMap<
+  THttpHandlers extends { [K in keyof keyof THttpHandlers extends string ? keyof THttpHandlers : never]: THttpHandlers[keyof THttpHandlers] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never}
+> = {
   [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler
     ? THttpHandlers[K]
     : never;
@@ -73,14 +78,14 @@ type WsHandlerMap<TWsHandlers extends object> = {
  * handler.
  */
 export interface ProtocolHandlerCoreConfig<
-  THttpHandlers extends keyof THttpHandlers extends string ? { [K in keyof THttpHandlers]: THttpHandlers[keyof THttpHandlers] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never} : never,
-  TWsHandlers extends keyof TWsHandlers extends string ? { [K in keyof TWsHandlers]: TWsHandlers[keyof TWsHandlers] extends GenericWsHandler<WsHandlerRequest, any> ? TWsHandlers[K] : never } : never
+  THttpHandlers extends Record<string, GenericHttpHandler<any>>,
+  TWsHandlers extends Record<string, GenericWsHandler<any>>
 > {
   httpHandlers: THttpHandlers;
   wsHandlers: TWsHandlers;
   processors: {
-    http: HttpProcessor;
-    ws: WsProcessor;
+    http: HttpProcessor<THttpHandlers>;
+    ws: WsProcessor<TWsHandlers>;
   };
   defaults?: {
     httpHost?: string;
@@ -88,21 +93,37 @@ export interface ProtocolHandlerCoreConfig<
   };
 }
 
-type HandlerRequest<T> = T extends GenericHttpHandler<infer Req, any>
+export type HandlerRequest<T> = T extends GenericHttpHandler<infer Req, any>
   ? Req
   : T extends GenericWsHandler<infer Req, any>
   ? Req
   : never;
 
-type HandlerResult<T> = T extends GenericHttpHandler<any, infer Res>
+export type HandlerResult<T> = T extends GenericHttpHandler<any, infer Res>
   ? Res
   : T extends GenericWsHandler<any, infer Res>
   ? Res
   : never;
 
-type StringKeyThen<T> = keyof T extends string ? T : never;
-type KeyString<T> = T extends string ? T : never;
+function createFunc<
+  T extends object,
+  F extends Record<string, (ctx: T, ...args: any[]) => any>
+>(
+  ctx: T,
+  handlers: F
+): Handler<T, F> {
+  const boundHandlers = {} as BoundHandlers<F>;
 
+  for (const key in handlers) {
+    const handler = handlers[key];
+    boundHandlers[key] = ((...args: any[]) => handler(ctx, ...args)) as BoundHandlers<F>[typeof key];
+  }
+
+  return {
+    ...ctx,
+    handlers: boundHandlers,
+  } as Handler<T, F>;
+}
 /**
  * Core implementation of the protocol handler.  It takes care of
  * inferring the protocol based on request shape, normalising
@@ -111,18 +132,39 @@ type KeyString<T> = T extends string ? T : never;
  * handler cannot be resolved.
  */
 export class ProtocolHandlerCore<
-  THttpHandlers extends StringKeyThen<{ [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never}>,
-  TWsHandlers extends StringKeyThen<{ [K in keyof TWsHandlers]: TWsHandlers[K] extends GenericWsHandler<WsHandlerRequest, any> ? TWsHandlers[K] : never }>
+  THttpHandlers extends BoundHandlers<THttpHandlers>,
+  TWsHandlers extends BoundHandlers<TWsHandlers>
 > {
-  private readonly httpHandlers: THttpHandlers;
-  private readonly wsHandlers: TWsHandlers;
-  private readonly httpProcessor: HttpProcessor;
-  private readonly wsProcessor: WsProcessor;
+  private readonly httpHandlers: BoundHandlers<THttpHandlers>;
+  private readonly wsHandlers: BoundHandlers<TWsHandlers>;
+  private httpProcessor: HttpProcessor<THttpHandlers>;
+  private wsProcessor: WsProcessor<TWsHandlers>;
   private readonly defaults: { httpHost: string; wsHost: string };
 
+  private inheritContext<T extends THttpHandlers | TWsHandlers>(
+    context: HttpProcessor<THttpHandlers> | WsProcessor<TWsHandlers>,
+    handlers: BoundHandlers<T>,
+  ): BoundHandlers<T> {
+    const handlerObject = {} as BoundHandlers<T>;
+    for (const key in handlers) {
+      handlerObject[key] = ((req: HandlerRequest<typeof handlers>) => {
+        const protocol = this.inferProtocol(req);
+        return handlers[key](req);
+      }) as BoundHandlers<T>[typeof key];
+      if (key === 'connect' || key === 'send' || key === 'close' || key === 'message' || key === 'open' || key === 'error') {
+        isWs = true;
+      }
+    }
+    if (isWs) {
+      this.wsProcessor.handlers = handlerObject as BoundHandlers<TWsHandlers>;
+    } else {
+      this.httpProcessor.handlers = handlerObject as BoundHandlers<THttpHandlers>;
+    }
+    return handlerObject;
+  };
   constructor(config: ProtocolHandlerCoreConfig<THttpHandlers, TWsHandlers>) {
-    this.httpHandlers = config.httpHandlers;
-    this.wsHandlers = config.wsHandlers;
+    this.httpHandlers = this.inheritContext(config.processors.http, config.httpHandlers);
+    this.wsHandlers = this.inheritContext(config.processors.ws, config.wsHandlers);
     this.httpProcessor = config.processors.http;
     this.wsProcessor = config.processors.ws;
     const httpHost = config.defaults?.httpHost ?? 'http://127.0.0.1';
@@ -139,7 +181,7 @@ export class ProtocolHandlerCore<
    * error is thrown.  This method could be extended to support
    * additional protocols by adding more branches.
    */
-  private inferProtocol(req: ProtocolHandlerRequest | unknown): 'http' | 'ws' {
+  private inferProtocol(req: ProtocolHandlerRequest<keyof THttpHandlers | keyof TWsHandlers> | unknown): 'http' | 'ws' {
     const maybeObj = req as {
       method?: unknown;
       endpoint?: unknown;
@@ -160,7 +202,7 @@ export class ProtocolHandlerCore<
     throw new Error('Unable to infer protocol from request properties.');
   }
 
-  /**
+  /**y
    * Normalise a request by applying default hosts.  For HTTP
    * requests the default host is applied only if the caller has
    * not provided a full `url`.  The endpoint is concatenated with
@@ -169,14 +211,14 @@ export class ProtocolHandlerCore<
    * applied if no URL is provided.  Other WebSocket actions pass
    * through unchanged.
    */
-  private normaliseRequest<T extends KeyString<keyof THttpHandlers | keyof TWsHandlers>>(req: ProtocolHandlerRequest<T>): ProtocolHandlerRequest<T> {
+  private normaliseRequest<T extends THttpHandlers | TWsHandlers>(req: ProtocolHandlerRequest<keyof T>): ProtocolHandlerRequest<keyof T> {
     const protocol = this.inferProtocol(req);
     // Clone the request to avoid mutating the original object
-    const result: ProtocolHandlerRequest<T> = { ...req } as ProtocolHandlerRequest<T>;
+    const result: ProtocolHandlerRequest<keyof T> = { ...req } as ProtocolHandlerRequest<keyof T>;
     if (protocol === 'http') {
       // For HTTP requests, build a full URL if one is not provided
       if ('endpoint' in result) {
-        const httpResult = result as HttpHandlerRequest<T>;
+        const httpResult = result as HttpHandlerRequest<keyof T>;
         if (httpResult.url) {
           return httpResult;
         }
@@ -206,17 +248,17 @@ export class ProtocolHandlerCore<
    * constructed here and passed into the handler.  If no handler
    * exists for the given name an error is thrown.
    */
-  async dispatch<T extends KeyString<keyof THttpHandlers | keyof TWsHandlers>>(request: ProtocolHandlerRequest<T>): Promise<unknown> {
+  async dispatch<T extends THttpHandlers | TWsHandlers>(request: ProtocolHandlerRequest<T>): Promise<unknown> {
     const normalised = this.normaliseRequest(request);
     const protocol = this.inferProtocol(normalised);
     const handlerName = normalised.handler;
-    const ctx: HandlerContext = {
+    const ctx: HandlerContext<THttpHandlers, TWsHandlers> = {
       http: this.httpProcessor,
       ws: this.wsProcessor,
       defaults: this.defaults,
     };
     if (protocol === 'http') {
-      if (!(handlerName in this.httpHandlers)) {
+      if (!(handlerName in this.httpProcessor.handlers)) {
         throw new Error(`No HTTP handler found for "${handlerName}"`);
       }
       const handler = this.httpHandlers[handlerName];
@@ -224,7 +266,7 @@ export class ProtocolHandlerCore<
         throw new Error(`No HTTP handler found for "${handlerName}"`);
       }
 
-      return handler(normalised as Parameters<typeof handler>[0], ctx);
+      return handler(ctx, normalised as Parameters<typeof handler>[0]);
     }
     if (protocol === 'ws') {
       if (!(handlerName in this.wsHandlers)) {
@@ -234,7 +276,7 @@ export class ProtocolHandlerCore<
       if (!handler) {
         throw new Error(`No WebSocket handler found for "${handlerName}"`);
       }
-      return handler(normalised as Parameters<typeof handler>[0], ctx);
+      return handler(ctx, normalised as Parameters<typeof handler>[0]);
     }
     // Should never reach here due to inferProtocol logic
     throw new Error('Unsupported protocol');

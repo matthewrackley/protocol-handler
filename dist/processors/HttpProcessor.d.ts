@@ -1,3 +1,4 @@
+import { GenericHttpHandler } from '../core/ProtocolHandlerCore';
 import { HttpMethod } from '../types';
 /**
  * The shape of an outgoing HTTP request accepted by the HttpProcessor
@@ -7,11 +8,11 @@ import { HttpMethod } from '../types';
  * property allows structured query parameters to be passed in a type
  * safe manner.
  */
-export interface HttpRequestInput {
+export interface HttpRequestInput<T> {
     method: HttpMethod;
     url: string;
     headers?: Record<string, string>;
-    body?: unknown;
+    body?: T;
     query?: Record<string, string | number | boolean>;
 }
 /**
@@ -21,12 +22,13 @@ export interface HttpRequestInput {
  * calling code to remain agnostic of the underlying HTTP client
  * (fetch, axios, node's http module, etc.).
  */
-export interface HttpProcessor {
+export interface HttpProcessor<T extends Record<string, GenericHttpHandler<any>>> {
     /**
      * Execute an HTTP request.  The return value should be a promise
      * resolving to whatever data your handlers expect.  It is up to
      * the implementation to encode the body, append query parameters,
      * and parse the response appropriately.
      */
-    request(input: HttpRequestInput): Promise<unknown>;
+    request<T extends Record<string, any>>(input: HttpRequestInput<T>): Promise<T>;
+    handlers: T;
 }
