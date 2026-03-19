@@ -4,7 +4,8 @@ import {
   ProtocolHandlerCore,
   ProtocolHandlerCoreConfig,
 } from '../core/ProtocolHandlerCore';
-import { AnyHandler, ProtocolHandlerRequest, WsHandlerRequest } from '../types';
+import { AnyHandler, BoundHandlers, ProtocolHandlerRequest, WsHandlerRequest } from '../types';
+import { StringKeyOf } from '../../dist/core/ProtocolHandlerCore';
 
 type HandlerParams<THandler extends AnyHandler> = THandler extends (...args: infer U) => any ? U : never;
 type HandlerResult<THandler extends AnyHandler> = ReturnType<THandler>;
@@ -107,7 +108,7 @@ export function createProtocolHandler<
      * WebSocket discriminating properties (method/endpoint for
      * HTTP, action for WS).
      */
-    handle: (request: ProtocolHandlerRequest) => core.dispatch(request),
+    handle: (request: ProtocolHandlerRequest<BoundHandlers<THttpHandlers | TWsHandlers>>) => core.dispatch(request),
 
     /**
      * Namespace for calling registered HTTP handlers directly.  Each
@@ -128,51 +129,3 @@ export function createProtocolHandler<
     ws: wsApi,
   };
 }
-
-const protocolHandler = createProtocolHandler({
-  httpHandlers: {
-    exampleHandler: async (req, ctx) => {
-      // Handler implementation here
-    }
-  },
-  wsHandlers: {
-    exampleWsHandler: async (req, ctx) => {
-      // Handler implementation here
-    }
-  },
-  processors: {
-    http: {
-      value: async (input) => {
-
-      },
-      get: async (input) => {
-
-      }
-    },
-    ws: {
-      fva: async (input: string) => {
-        // WebSocket connect processing logic here
-
-      },
-      connect: async (input) => {
-        // WebSocket connect processing logic here
-        input.protocols;
-      },
-      send: async (input) => {
-        input.action === 'send';
-        // WebSocket send processing logic here
-      },
-      close: (input) => {
-        input.action === 'close';
-        // WebSocket close processing logic here
-      }
-    },
-  defaults: {
-    httpHost: 'https://api.example.com',
-    wsHost: 'wss://ws.example.com'
-  }
-
-}
-});
-
-protocolHandler.http.
