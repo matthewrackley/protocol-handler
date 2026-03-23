@@ -1,5 +1,6 @@
-import { HttpProcessor } from '../processors/HttpProcessor';
-import { WsProcessor } from '../processors/WsProcessor';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { TypedHttpServer, TypedHttpServerOptions, HttpRouteMap, TypedExpressHttpServer } from '../processors/HttpProcessor';
+import { TypedWebSocketServer, TypedWebSocketServerOptions, WsMessageMap } from '../processors/WsProcessor';
 import {
   HttpHandlerRequest,
   MaybePromise,
@@ -14,9 +15,16 @@ import {
  * operations without knowing how the underlying transport is
  * implemented.
  */
-export interface HandlerContext {
-  http: HttpProcessor;
-  ws: WsProcessor;
+export interface HandlerContext<
+  THttpRoutes extends HttpRouteMap = HttpRouteMap,
+  TWsMessageMap extends WsMessageMap = WsMessageMap
+> {
+  http: TypedHttpServer<THttpRoutes> | TypedExpressHttpServer<THttpRoutes>;
+  ws: TypedWebSocketServer<TWsMessageMap, TWsMessageMap, any>;
+  node?: {
+    req: IncomingMessage;
+    res: ServerResponse;
+  };
   defaults: {
     httpHost: string;
     wsHost: string;
@@ -35,34 +43,24 @@ export type GenericHttpHandler<
   Res = unknown,
 > = (
   req: Req,
-  ctx: HandlerContext
+  ctx: HandlerContext<any, any>
 ) => MaybePromise<Res>;
 
-/**
- * Generic WebSocket handler signature.  Similar to GenericHttpHandler
- * but for WebSocket requests.  Each handler receives a request of
- * type `Req` and the shared context and returns a value of type
- * `Res`.
- */
 export type GenericWsHandler<
   Req extends WsHandlerRequest = WsHandlerRequest,
   Res = unknown,
 > = (
   req: Req,
-  ctx: HandlerContext
+  ctx: HandlerContext<any, any>
 ) => MaybePromise<Res>;
 
-type HttpHandlerMap<THttpHandlers extends { [K in keyof keyof THttpHandlers extends string ? keyof THttpHandlers : never]: THttpHandlers[keyof THttpHandlers] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never}> = {
-  [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler
-    ? THttpHandlers[K]
-    : never;
-};
 
-type WsHandlerMap<TWsHandlers extends object> = {
-  [K in keyof TWsHandlers]: TWsHandlers[K] extends GenericWsHandler
-    ? TWsHandlers[K]
-    : never;
-};
+
+// type WsHandlerMap<TWsHandlers extends object> = {
+//   [K in keyof TWsHandlers]: TWsHandlers[K] extends GenericWsHandler
+//     ? TWsHandlers[K]
+//     : never;
+// };
 
 /**
  * Configuration required to instantiate the protocol handler core.
@@ -73,35 +71,21 @@ type WsHandlerMap<TWsHandlers extends object> = {
  * handler.
  */
 export interface ProtocolHandlerCoreConfig<
-  THttpHandlers extends keyof THttpHandlers extends string ? { [K in keyof THttpHandlers]: THttpHandlers[keyof THttpHandlers] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never} : never,
-  TWsHandlers extends keyof TWsHandlers extends string ? { [K in keyof TWsHandlers]: TWsHandlers[keyof TWsHandlers] extends GenericWsHandler<WsHandlerRequest, any> ? TWsHandlers[K] : never } : never
-> {
-  httpHandlers: THttpHandlers;
-  wsHandlers: TWsHandlers;
-  processors: {
-    http: HttpProcessor;
-    ws: WsProcessor;
+  THttpServerOpts extends HttpRouteMap,
+  TWSServerOpts extends WsMessageMap
+  > {
+  http: TypedHttpServerOptions<THttpServerOpts>;
+  ws: TypedWebSocketServerOptions<TWSServerOpts, TWSServerOpts, any>;
+  httpRuntime?: 'node' | 'express';
+  handlers?: {
+    http?: Partial<Record<Extract<keyof THttpServerOpts, string>, GenericHttpHandler>>;
+    ws?: Partial<Record<Extract<keyof TWSServerOpts, string>, GenericWsHandler>>;
   };
   defaults?: {
     httpHost?: string;
     wsHost?: string;
   };
 }
-
-type HandlerRequest<T> = T extends GenericHttpHandler<infer Req, any>
-  ? Req
-  : T extends GenericWsHandler<infer Req, any>
-  ? Req
-  : never;
-
-type HandlerResult<T> = T extends GenericHttpHandler<any, infer Res>
-  ? Res
-  : T extends GenericWsHandler<any, infer Res>
-  ? Res
-  : never;
-
-type StringKeyThen<T> = keyof T extends string ? T : never;
-type KeyString<T> = T extends string ? T : never;
 
 /**
  * Core implementation of the protocol handler.  It takes care of
@@ -111,24 +95,47 @@ type KeyString<T> = T extends string ? T : never;
  * handler cannot be resolved.
  */
 export class ProtocolHandlerCore<
-  THttpHandlers extends StringKeyThen<{ [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler<HttpHandlerRequest, any> ? THttpHandlers[K] : never}>,
-  TWsHandlers extends StringKeyThen<{ [K in keyof TWsHandlers]: TWsHandlers[K] extends GenericWsHandler<WsHandlerRequest, any> ? TWsHandlers[K] : never }>
+  THttpRoutes extends HttpRouteMap,
+  TWsMessageMap extends WsMessageMap
 > {
-  private readonly httpHandlers: THttpHandlers;
-  private readonly wsHandlers: TWsHandlers;
-  private readonly httpProcessor: HttpProcessor;
-  private readonly wsProcessor: WsProcessor;
+  private readonly httpHandlers: Map<string, GenericHttpHandler>;
+  private readonly wsHandlers: Map<string, GenericWsHandler>;
+  private readonly http: TypedHttpServer<THttpRoutes> | TypedExpressHttpServer<THttpRoutes>;
+  private readonly ws: TypedWebSocketServer<TWsMessageMap, TWsMessageMap, any>;
   private readonly defaults: { httpHost: string; wsHost: string };
 
-  constructor(config: ProtocolHandlerCoreConfig<THttpHandlers, TWsHandlers>) {
-    this.httpHandlers = config.httpHandlers;
-    this.wsHandlers = config.wsHandlers;
-    this.httpProcessor = config.processors.http;
-    this.wsProcessor = config.processors.ws;
+  constructor (config: ProtocolHandlerCoreConfig<THttpRoutes, TWsMessageMap>) {
+    this.httpHandlers = new Map<string, GenericHttpHandler>();
+    this.wsHandlers = new Map<string, GenericWsHandler>();
+
+    for (const key in (config.handlers?.http ?? {})) {
+      const handler = config.handlers?.http?.[key as Extract<keyof THttpRoutes, string>];
+      if (!handler) continue;
+      this.httpHandlers.set(key, handler);
+    }
+
+    for (const key in (config.handlers?.ws ?? {})) {
+      const handler = config.handlers?.ws?.[key as Extract<keyof TWsMessageMap, string>];
+      if (!handler) continue;
+      this.wsHandlers.set(key, handler);
+    }
+
+    if ((config.httpRuntime ?? 'node') === 'express') {
+      this.http = new TypedExpressHttpServer({
+        routes: config.http.routes,
+        handlers: config.http.handlers,
+        host: config.http.host,
+        port: config.http.port,
+      });
+    } else {
+      this.http = new TypedHttpServer(config.http);
+    }
+    this.ws = new TypedWebSocketServer(config.ws);
     const httpHost = config.defaults?.httpHost ?? 'http://127.0.0.1';
     const wsHost = config.defaults?.wsHost ?? 'ws://127.0.0.1';
     this.defaults = { httpHost, wsHost };
   }
+
 
   /**
    * Infer the protocol of the provided request object based on
@@ -169,7 +176,7 @@ export class ProtocolHandlerCore<
    * applied if no URL is provided.  Other WebSocket actions pass
    * through unchanged.
    */
-  private normaliseRequest<T extends KeyString<keyof THttpHandlers | keyof TWsHandlers>>(req: ProtocolHandlerRequest<T>): ProtocolHandlerRequest<T> {
+  private normaliseRequest<T extends string>(req: ProtocolHandlerRequest<T>): ProtocolHandlerRequest<T> {
     const protocol = this.inferProtocol(req);
     // Clone the request to avoid mutating the original object
     const result: ProtocolHandlerRequest<T> = { ...req } as ProtocolHandlerRequest<T>;
@@ -206,36 +213,38 @@ export class ProtocolHandlerCore<
    * constructed here and passed into the handler.  If no handler
    * exists for the given name an error is thrown.
    */
-  async dispatch<T extends KeyString<keyof THttpHandlers | keyof TWsHandlers>>(request: ProtocolHandlerRequest<T>): Promise<unknown> {
+  async dispatch<T extends string>(
+    request: ProtocolHandlerRequest<T>,
+    node?: { req: IncomingMessage; res: ServerResponse; }
+  ): Promise<unknown> {
     const normalised = this.normaliseRequest(request);
     const protocol = this.inferProtocol(normalised);
-    const handlerName = normalised.handler;
-    const ctx: HandlerContext = {
-      http: this.httpProcessor,
-      ws: this.wsProcessor,
+    const handlerName = String(normalised.handler);
+    const ctx:  HandlerContext<THttpRoutes, TWsMessageMap> = {
+      http: this.http,
+      ws: this.ws,
+      node,
       defaults: this.defaults,
     };
+
     if (protocol === 'http') {
-      if (!(handlerName in this.httpHandlers)) {
-        throw new Error(`No HTTP handler found for "${handlerName}"`);
-      }
-      const handler = this.httpHandlers[handlerName];
+      const handler = this.httpHandlers.get(handlerName);
       if (!handler) {
         throw new Error(`No HTTP handler found for "${handlerName}"`);
       }
 
-      return handler(normalised as Parameters<typeof handler>[0], ctx);
+      return handler(normalised as HttpHandlerRequest, ctx);
     }
+
     if (protocol === 'ws') {
-      if (!(handlerName in this.wsHandlers)) {
-        throw new Error(`No WebSocket handler found for "${handlerName}"`);
-      }
-      const handler = this.wsHandlers[handlerName];
+      const handler = this.wsHandlers.get(handlerName);
       if (!handler) {
         throw new Error(`No WebSocket handler found for "${handlerName}"`);
       }
-      return handler(normalised as Parameters<typeof handler>[0], ctx);
+
+      return handler(normalised as WsHandlerRequest, ctx);
     }
+
     // Should never reach here due to inferProtocol logic
     throw new Error('Unsupported protocol');
   }

@@ -26,7 +26,9 @@ export type {
 export type {
   HttpProcessor,
   HttpRequestInput,
+  TypedExpressHttpServerOptions,
 } from './processors/HttpProcessor';
+export { TypedExpressHttpServer } from './processors/HttpProcessor';
 export type {
   WsProcessor,
   WsConnectInput,
