@@ -7,7 +7,7 @@ import {
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpRouteDefinition, HttpRouteMap, InferHttpRequest, InferHttpRoute, InferHttpRoutes, ParamsDict, PathParams, UserRouteDefinition } from '../processors/HttpProcessor';
 import { WsEnvelopeBase, WsMessageMap, WsMessageScope } from '../processors/WsProcessor';
-import { AnyEnvelope, BuildCallback, DefinedCallback, EvaluatedMessages, FieldDefinition, HttpMethod, MessageInputMap, ProtocolHandlerRequest, RegExpMatchPathArray, Request, UserCallback, UserContext, Widen } from '../types';
+import { AnyEnvelope, BuildCallback, DefinedCallback, EvaluatedMessages, FieldDefinition, HttpMethod, MessageInputMap, ProtocolHandlerRequest, RegExpMatchPathArray, Request, UserCallback, UserContext, Widen } from '../types/index';
 import { define, matchPath } from '../resolvers/tooling';
 
 type AnyFn = (...args: any[]) => any;

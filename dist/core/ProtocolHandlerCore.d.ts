@@ -1,5 +1,6 @@
-import { HttpProcessor } from '../processors/HttpProcessor';
-import { WsProcessor } from '../processors/WsProcessor';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { TypedHttpServer, TypedHttpServerOptions, HttpRouteMap, TypedExpressHttpServer } from '../processors/HttpProcessor';
+import { TypedWebSocketServer, TypedWebSocketServerOptions, WsMessageMap } from '../processors/WsProcessor';
 import { HttpHandlerRequest, MaybePromise, ProtocolHandlerRequest, WsHandlerRequest } from '../types';
 /**
  * Context passed to each handler.  The context exposes the low
@@ -8,9 +9,13 @@ import { HttpHandlerRequest, MaybePromise, ProtocolHandlerRequest, WsHandlerRequ
  * operations without knowing how the underlying transport is
  * implemented.
  */
-export interface HandlerContext {
-    http: HttpProcessor;
-    ws: WsProcessor;
+export interface HandlerContext<THttpRoutes extends HttpRouteMap = HttpRouteMap, TWsMessageMap extends WsMessageMap = WsMessageMap> {
+    http: TypedHttpServer<THttpRoutes> | TypedExpressHttpServer<THttpRoutes>;
+    ws: TypedWebSocketServer<TWsMessageMap, TWsMessageMap, any>;
+    node?: {
+        req: IncomingMessage;
+        res: ServerResponse;
+    };
     defaults: {
         httpHost: string;
         wsHost: string;
@@ -23,20 +28,8 @@ export interface HandlerContext {
  * type parameterisation allows the library to infer request and
  * response shapes for different handlers.
  */
-export type GenericHttpHandler<Req extends HttpHandlerRequest = HttpHandlerRequest, Res = unknown> = (req: Req, ctx: HandlerContext) => MaybePromise<Res>;
-/**
- * Generic WebSocket handler signature.  Similar to GenericHttpHandler
- * but for WebSocket requests.  Each handler receives a request of
- * type `Req` and the shared context and returns a value of type
- * `Res`.
- */
-export type GenericWsHandler<Req extends WsHandlerRequest = WsHandlerRequest, Res = unknown> = (req: Req, ctx: HandlerContext) => MaybePromise<Res>;
-type HttpHandlerMap<THttpHandlers extends object> = {
-    [K in keyof THttpHandlers]: THttpHandlers[K] extends GenericHttpHandler ? THttpHandlers[K] : never;
-};
-type WsHandlerMap<TWsHandlers extends object> = {
-    [K in keyof TWsHandlers]: TWsHandlers[K] extends GenericWsHandler ? TWsHandlers[K] : never;
-};
+export type GenericHttpHandler<Req extends HttpHandlerRequest = HttpHandlerRequest, Res = unknown> = (req: Req, ctx: HandlerContext<any, any>) => MaybePromise<Res>;
+export type GenericWsHandler<Req extends WsHandlerRequest = WsHandlerRequest, Res = unknown> = (req: Req, ctx: HandlerContext<any, any>) => MaybePromise<Res>;
 /**
  * Configuration required to instantiate the protocol handler core.
  * Users typically do not construct this class directly; instead
@@ -45,12 +38,13 @@ type WsHandlerMap<TWsHandlers extends object> = {
  * infer the request and response shapes for each registered
  * handler.
  */
-export interface ProtocolHandlerCoreConfig<THttpHandlers extends object, TWsHandlers extends object> {
-    httpHandlers: HttpHandlerMap<THttpHandlers>;
-    wsHandlers: WsHandlerMap<TWsHandlers>;
-    processors: {
-        http: HttpProcessor;
-        ws: WsProcessor;
+export interface ProtocolHandlerCoreConfig<THttpServerOpts extends HttpRouteMap, TWSServerOpts extends WsMessageMap> {
+    http: TypedHttpServerOptions<THttpServerOpts>;
+    ws: TypedWebSocketServerOptions<TWSServerOpts, TWSServerOpts, any>;
+    httpRuntime?: 'node' | 'express';
+    handlers?: {
+        http?: Partial<Record<Extract<keyof THttpServerOpts, string>, GenericHttpHandler>>;
+        ws?: Partial<Record<Extract<keyof TWSServerOpts, string>, GenericWsHandler>>;
     };
     defaults?: {
         httpHost?: string;
@@ -64,13 +58,13 @@ export interface ProtocolHandlerCoreConfig<THttpHandlers extends object, TWsHand
  * appropriate handler.  Errors are thrown when a protocol or
  * handler cannot be resolved.
  */
-export declare class ProtocolHandlerCore<THttpHandlers extends object, TWsHandlers extends object> {
+export declare class ProtocolHandlerCore<THttpRoutes extends HttpRouteMap, TWsMessageMap extends WsMessageMap> {
     private readonly httpHandlers;
     private readonly wsHandlers;
-    private readonly httpProcessor;
-    private readonly wsProcessor;
+    private readonly http;
+    private readonly ws;
     private readonly defaults;
-    constructor(config: ProtocolHandlerCoreConfig<THttpHandlers, TWsHandlers>);
+    constructor(config: ProtocolHandlerCoreConfig<THttpRoutes, TWsMessageMap>);
     /**
      * Infer the protocol of the provided request object based on
      * distinguishing properties.  HTTP requests must include a
@@ -98,6 +92,8 @@ export declare class ProtocolHandlerCore<THttpHandlers extends object, TWsHandle
      * constructed here and passed into the handler.  If no handler
      * exists for the given name an error is thrown.
      */
-    dispatch(request: ProtocolHandlerRequest): Promise<unknown>;
+    dispatch<T extends string>(request: ProtocolHandlerRequest<T>, node?: {
+        req: IncomingMessage;
+        res: ServerResponse;
+    }): Promise<unknown>;
 }
-export {};

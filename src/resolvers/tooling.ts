@@ -1,4 +1,3 @@
-import { CreatedTypes, FieldDefinition, HttpStructure, InferHttpRoutes, RegExpMatchPathArray, TypeFromLiteral } from '../types';
 
 export function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -94,40 +93,44 @@ export function createWsTypes<S extends Record<string, any>>(structure: S): Crea
   return result;
 }
 
-export function createHttpTypes<T extends HttpStructure>(structure: T): InferHttpRoutes<T> {
-  const result = {} as InferHttpRoutes<T>;
+// export function createHttpTypes<T extends HttpStructure>(structure: T): InferHttpRoutes<T> {
+//   const result = {} as InferHttpRoutes<T>;
 
-  for (const key in structure) {
-    const route = structure[key];
+//   for (const key in structure) {
+//     const route = structure[key];
 
-    result[key] = {
-      method: route.method,
-      path: route.path,
-      request: {
-        params: route.request.params === null ? null : resolveValue(route.request.params),
-        query: route.request.query === null ? null : resolveValue(route.request.query),
-        body: route.request.body === null ? null : resolveValue(route.request.body),
-      },
-      response: route.response === null ? null : resolveValue(route.response),
-    } as InferHttpRoutes<T>[typeof key];
-  }
+//     result[key] = {
+//       method: route.method,
+//       path: route.path,
+//       request: {
+//         params: route.request.params === null ? null : resolveValue(route.request.params),
+//         query: route.request.query === null ? null : resolveValue(route.request.query),
+//         body: route.request.body === null ? null : resolveValue(route.request.body),
+//       },
+//       response: route.response === null ? null : resolveValue(route.response),
+//     } as InferHttpRoutes<T>[typeof key];
+//   }
 
-  return result;
-}
-
+//   return result;
+// }
+const pathRegex = /^(?<path>\/[a-z0-9_-]+)(?:\/:(?<param>[a-z0-9_-]+))?$/i;
+const iterativePathRegex = /(?<path>\/[a-z0-9_-]+)(?:\/:(?<param>[a-z0-9_-]+))?/gi;
 export function matchPath (value: string) {
-  const pathRegex = /^(?<path>\/[a-z0-9_-]+)(?:\/:(?<param>[a-z0-9_-]+))?$/i;
-  const match = value.match(pathRegex) as RegExpMatchPathArray | null;
-  if (match) {
-    let param: boolean | undefined = undefined;
-    Object.defineProperty(match, 'hasParam', {
-      value: match.groups?.param != null,
-      enumerable: true,
-      writable: false,
-      configurable: false,
-    });
-    return match;
+  const doesMatch = value.match(pathRegex) != null;
+  const matches = value.matchAll(iterativePathRegex).toArray() as RegExpMatchPathArray[];
+  if (!doesMatch) {
+    throw new Error(`Invalid path format: ${ value }`);
   } else {
-    return null;
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i];
+      Object.defineProperty(match, 'hasParam', {
+        value: match.groups.param != null,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
+      matches[i] = match;
+    }
+    return matches;
   }
 }

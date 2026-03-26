@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProtocolHandlerCore = void 0;
+const HttpProcessor_1 = require("../processors/HttpProcessor");
+const WsProcessor_1 = require("../processors/WsProcessor");
 /**
  * Core implementation of the protocol handler.  It takes care of
  * inferring the protocol based on request shape, normalising
@@ -10,13 +12,35 @@ exports.ProtocolHandlerCore = void 0;
  */
 class ProtocolHandlerCore {
     constructor(config) {
-        var _a, _b, _c, _d;
-        this.httpHandlers = config.httpHandlers;
-        this.wsHandlers = config.wsHandlers;
-        this.httpProcessor = config.processors.http;
-        this.wsProcessor = config.processors.ws;
-        const httpHost = (_b = (_a = config.defaults) === null || _a === void 0 ? void 0 : _a.httpHost) !== null && _b !== void 0 ? _b : 'http://127.0.0.1';
-        const wsHost = (_d = (_c = config.defaults) === null || _c === void 0 ? void 0 : _c.wsHost) !== null && _d !== void 0 ? _d : 'ws://127.0.0.1';
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        this.httpHandlers = new Map();
+        this.wsHandlers = new Map();
+        for (const key in ((_b = (_a = config.handlers) === null || _a === void 0 ? void 0 : _a.http) !== null && _b !== void 0 ? _b : {})) {
+            const handler = (_d = (_c = config.handlers) === null || _c === void 0 ? void 0 : _c.http) === null || _d === void 0 ? void 0 : _d[key];
+            if (!handler)
+                continue;
+            this.httpHandlers.set(key, handler);
+        }
+        for (const key in ((_f = (_e = config.handlers) === null || _e === void 0 ? void 0 : _e.ws) !== null && _f !== void 0 ? _f : {})) {
+            const handler = (_h = (_g = config.handlers) === null || _g === void 0 ? void 0 : _g.ws) === null || _h === void 0 ? void 0 : _h[key];
+            if (!handler)
+                continue;
+            this.wsHandlers.set(key, handler);
+        }
+        if (((_j = config.httpRuntime) !== null && _j !== void 0 ? _j : 'node') === 'express') {
+            this.http = new HttpProcessor_1.TypedExpressHttpServer({
+                routes: config.http.routes,
+                handlers: config.http.handlers,
+                host: config.http.host,
+                port: config.http.port,
+            });
+        }
+        else {
+            this.http = new HttpProcessor_1.TypedHttpServer(config.http);
+        }
+        this.ws = new WsProcessor_1.TypedWebSocketServer(config.ws);
+        const httpHost = (_l = (_k = config.defaults) === null || _k === void 0 ? void 0 : _k.httpHost) !== null && _l !== void 0 ? _l : 'http://127.0.0.1';
+        const wsHost = (_o = (_m = config.defaults) === null || _m === void 0 ? void 0 : _m.wsHost) !== null && _o !== void 0 ? _o : 'ws://127.0.0.1';
         this.defaults = { httpHost, wsHost };
     }
     /**
@@ -91,30 +115,25 @@ class ProtocolHandlerCore {
      * constructed here and passed into the handler.  If no handler
      * exists for the given name an error is thrown.
      */
-    async dispatch(request) {
+    async dispatch(request, node) {
         const normalised = this.normaliseRequest(request);
         const protocol = this.inferProtocol(normalised);
-        const handlerName = normalised.handler;
+        const handlerName = String(normalised.handler);
         const ctx = {
-            http: this.httpProcessor,
-            ws: this.wsProcessor,
+            http: this.http,
+            ws: this.ws,
+            node,
             defaults: this.defaults,
         };
         if (protocol === 'http') {
-            if (!(handlerName in this.httpHandlers)) {
-                throw new Error(`No HTTP handler found for "${handlerName}"`);
-            }
-            const handler = this.httpHandlers[handlerName];
+            const handler = this.httpHandlers.get(handlerName);
             if (!handler) {
                 throw new Error(`No HTTP handler found for "${handlerName}"`);
             }
             return handler(normalised, ctx);
         }
         if (protocol === 'ws') {
-            if (!(handlerName in this.wsHandlers)) {
-                throw new Error(`No WebSocket handler found for "${handlerName}"`);
-            }
-            const handler = this.wsHandlers[handlerName];
+            const handler = this.wsHandlers.get(handlerName);
             if (!handler) {
                 throw new Error(`No WebSocket handler found for "${handlerName}"`);
             }
