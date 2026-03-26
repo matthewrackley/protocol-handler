@@ -280,3 +280,14 @@ const getUser = defineRoute({
     },
   },
 });
+
+
+
+  const validatorShapeExample: ValidatorShape = {
+    userID: {
+      parse: (input: unknown) => {
+        if (typeof input === 'number') return input;
+        throw new Error('Invalid userID');
+      }
+    }
+  };
