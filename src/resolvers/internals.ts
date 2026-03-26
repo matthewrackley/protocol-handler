@@ -1,5 +1,5 @@
 import { matchPath } from './tooling';
-import { stringValidator } from './validators';
+import { numberValidator, stringValidator } from './validators';
 
 /**
  * Validates an object using a validator shape.
@@ -191,6 +191,39 @@ const defineRoute = <
   >
 ) => route;
 
+defineRoute({
+  method: 'get',
+  path: '/users/:userID',
+  request: {
+    params: {
+      userID: stringValidator,
+    },
+  },
+  handlers: {
+    context: async (req) => {
+      // ... fetch user from DB logic ...
+      return { userRole: 'admin' }; // inferred as { userRole: string }
+    },
+    callback: async (req, res, ctx) => {
+      req.params.userID
+    },
+  },
+});
+let optionals =<TPath extends string, TParamsShape extends PathParamsValidatorShape<TPath> = PathParamsValidatorShape<TPath>, TQueryShape extends ValidatorShape | undefined = undefined, TBodyShape extends ValidatorShape | undefined = undefined>(path: TPath) => {
+    const request = {} as RouteRequestDefinition<TPath, TParamsShape, TQueryShape, TBodyShape>;
+    const matches = matchPath(path);
+    for (let i = 0; i < matches.length; i++) {
+      if (matches[i].hasParam) {
+        request.params = {
+          ...request.params,
+          [matches[i].groups.param!]: stringValidator,
+        } as TParamsShape;
+      }
+    }
+    request.query = undefined;
+    request.body = undefined;
+  return request;
+  };
 const definer = <TMethod extends HttpMethod,
   TPath extends string,
   TParamsShape extends PathParamsValidatorShape<TPath> = PathParamsValidatorShape<TPath>,
@@ -198,7 +231,10 @@ const definer = <TMethod extends HttpMethod,
   TBodyShape extends ValidatorShape | undefined = undefined,
   TContext = undefined,
   TResponseBody = unknown,
-  > (method: TMethod, path: TPath, options: {} = () => {
+  > (method: TMethod, path: TPath, handlers:  = {
+    context: undefined as TContext extends undefined ? undefined : ((req: TypedRequest<TPath, TParamsShape, TQueryShape, TBodyShape>) => MaybePromise<TContext>) | TContext
+
+  }, request = (() => {
     const request = {} as RouteRequestDefinition<TPath, TParamsShape, TQueryShape, TBodyShape>;
     const matches = matchPath(path);
     for (let i = 0; i < matches.length; i++) {
@@ -213,7 +249,7 @@ const definer = <TMethod extends HttpMethod,
     request.body = undefined;
 
     return request;
-  }) => ({});
+  })()) => ({});
 
 /**
  * Identity helper for defining multiple routes at once with strong inference.

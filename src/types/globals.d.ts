@@ -39,7 +39,7 @@ declare global {
    * - throws an error
    */
   export type Validator<T> = {
-    parse: (input: unknown) => T;
+    parse: <I>(input: I) => I extends T ? T : never;
   };
 
   /**
@@ -108,6 +108,9 @@ declare global {
       [K in PathParamNames<TPath>]: Validator<any>;
     };
 
+  export type FallbackToString = {
+    parse: <T>(input: T) => T;
+  };
   /**
    * Route request definition.
    *
