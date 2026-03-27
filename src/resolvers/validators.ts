@@ -1,4 +1,9 @@
 
+const defaultOptions = <B extends boolean>() => ({
+  initialInput: undefined,
+  optional: false as B,
+  typeOf: "undefined" as TypeOf
+}) as ValidatorOptions<B>;
 /**
  * Validator class and related utilities for validating and parsing input data in resolvers.
  *
@@ -135,10 +140,11 @@ export class Validator<T, B extends boolean = false> implements ValidateType<T, 
   /**
    * Creates a new Validator instance with the given validation function and options.  The validate parameter is a function that takes an input value and returns a boolean indicating whether the input is valid according to the validator's rules.  The options parameter can include an initialInput to validate immediately, an optional flag to indicate whether the validator should be optional, and a typeOf string for error messaging.  If initialInput is provided, it will be validated immediately, and if validation fails and the validator is required, an error will be thrown.
    */
-  constructor (validate: <I>(input: I) => input is I extends T ? I & T : never, options: ValidatorOptions<B> = {}) {
-    const initialInput = options.initialInput;
-    this.#optional = options.optional ??= false as B;
-    this.typeOf = options.typeOf ??= "undefined";
+  constructor (validate: <I>(input: I) => input is I extends T ? I & T : never, private options: ValidatorOptions<B> = defaultOptions<B>()) {
+    /** {@link Validator.initialInput initialInput-default} */
+    const initialInput = this.options.initialInput;
+    this.#optional = this.options.optional ?? false as B;
+    this.typeOf = this.options.typeOf ?? "undefined";
     this.validate = (input) => {
       const ok = validate(input);
       this.#valid = ok;
@@ -156,29 +162,30 @@ export class Validator<T, B extends boolean = false> implements ValidateType<T, 
 
 /**
  * Factory function to create a new Validator instance.  This is a convenience function that allows you to create a Validator without using the new keyword directly.  It takes the same parameters as the Validator constructor and returns a new Validator instance.
+ * @type CreateValidator
  * @template T - The type that the validator will validate against.
- * @template {boolean} [B=false] - A boolean indicating whether the validator should be optional (true) or required (false).  Defaults to false.
+ * @template {boolean} B - A boolean indicating whether the validator should be optional (true) or required (false).  Defaults to false.
  * @param {<I>(input: I) => input is I extends T ? I & T : never} validate  - A validation function that takes an input value and returns a boolean indicating whether the input is valid according to the validator's rules.  The function should be a type predicate that narrows the type of the input if validation succeeds.
- * @param {ValidatorOptions<B>} [options={}] - An optional object containing additional options for the validator.  This can include:
- * - [initialInput=undefined]: An initial input value to validate immediately upon creation of the validator.  If provided, this value will be validated using the provided validate function, and if validation fails and the validator is required, an error will be thrown.
- * - [optional=false]: A boolean indicating whether the validator should be optional (true) or required (false).  If not provided, this defaults to false (required).
- * - [typeOf=typeof initialInput>]: A string representing the expected type of the input for error messaging purposes.  If not provided, this will be inferred from the input during validation.
+ * @param {ValidatorOptions<B>} [options={}] An optional object containing additional options for the validator.  This can include:
+ * - `initialInput`: An initial input value to validate immediately upon creation of the validator.  {@linkcode Validator.options ValidatorOptions<B>.initialInput}:`defaults to undefined.`
+ * - `optional`: A boolean indicating whether the validator should be optional (true) or required (false).  {@linkcode Validator.options ValidatorOptions<B>.optional}:`defaults to false.`
+ * - `typeOf`: A string representing the expected type of the input for error messaging purposes.  {@linkcode Validator.options ValidatorOptions<B>.typeOf}:`defaults to "undefined".`
  * @returns {Validator<T, B>}
  */
-export const createValidator: CreateValidator = (
+export const createValidator: CreateValidator = function (
     validate,
     options = {}
-  ) => new Validator(validate, options);
-
-
+  ) {
+    return new Validator(validate, options);
+  };
 
 /**
- * Converts a value to its corresponding TypeOf string, with special handling for constructors.  If a constructor is provided and the value is an instance of that constructor, the constructor itself is returned.  Otherwise, the function checks for primitive types and returns the appropriate TypeOf string.  This utility is used to determine the type of a value for validation and error messaging purposes.
+ * Converts a value to its corresponding `TypeOf` string, with special handling for constructors.  If a constructor is provided and the value is an instance of that constructor, the constructor itself is returned.  Otherwise, the function checks for primitive types and returns the appropriate `TypeOf` string.  This utility is used to determine the type of a value for validation and error messaging purposes.
  * @template T - The type of the value to convert.
  * @template {(new (...args: any) => any) | undefined} [C=undefined] - A constructor type that can be used to check if the value is an instance of a specific class.  This should be a newable type (i.e., a class constructor).
- * @param {T} value - The value to convert to a TypeOf string.  This can be any value, and the function will determine its type based on the provided constructor and its actual type.
- * @param {C} [constructor=undefined as C] - An optional constructor that can be used to check if the value is an instance of a specific class.  If the value is an instance of this constructor, the constructor itself will be returned instead of a TypeOf string.  If not provided, this defaults to undefined, and the function will only check for primitive types.
- * @returns {C extends (new (...args: any) => any) ? C : TypeOf}  Returns the constructor if the value is an instance of it, or a TypeOf string representing the type of the value.  The return type is a conditional type that returns the constructor type if a constructor is provided and the value is an instance of it, or a TypeOf string otherwise.
+ * @param {T} value - The value to convert to a `TypeOf` string.  This can be any value, and the function will determine its type based on the provided constructor and its actual type.
+ * @param {C} [constructor=undefined as C] - An optional constructor that can be used to check if the value is an instance of a specific class.  If the value is an instance of this constructor, the constructor itself will be returned instead of a `TypeOf` string.  If not provided, this defaults to undefined, and the function will only check for primitive types.
+ * @returns {C extends (new (...args: any) => any) ? C : TypeOf}  Returns the constructor if the value is an instance of it, or a `TypeOf` string representing the type of the value.  The return type is a conditional type that returns the constructor type if a constructor is provided and the value is an instance of it, or a `TypeOf` string otherwise.
  */
 export function convertToTypeOf<T, C extends (new (...args: any) => any) | undefined = undefined>(value: T, constructor: C = undefined as C): C extends (new (...args: any) => any) ? C : TypeOf {
   const falsyValues = [0, false, "", null, undefined, -0, 0n, NaN];
@@ -197,10 +204,10 @@ export function convertToTypeOf<T, C extends (new (...args: any) => any) | undef
 }
 
 /**
- * Generic validator factory that creates a validator for a specific primitive type.  This function takes a TypeOf string representing the expected type and returns a Validator instance that validates input against that type.  The validator will use the static isTypeOf method to check if the input matches the expected type, and it will handle type coercion for numbers and booleans to allow for common string representations of these types.
- * @template T - The TypeOf string representing the expected type of the input (e.g., "string", "number").
- * @param {T} type - The TypeOf string representing the expected type of the input.  This should be one of the valid TypeOf values (e.g., "string", "number", "boolean").
- * @returns {Validator<Primitive<T>, false>} Returns a Validator instance that validates input against the specified primitive type.  The validatedInput type will be the corresponding primitive type for the given TypeOf string (e.g., string for "string", number for "number").
+ * Generic validator factory that creates a validator for a specific primitive type.  This function takes a `TypeOf` string representing the expected type and returns a Validator instance that validates input against that type.  The validator will use the static isTypeOf method to check if the input matches the expected type, and it will handle type coercion for numbers and booleans to allow for common string representations of these types.
+ * @template {TypeOf} T - The `TypeOf` string representing the expected type of the input (e.g., "string", "number").
+ * @param {T} type - The `TypeOf` string representing the expected type of the input.  This should be one of the valid `TypeOf` values (e.g., "string", "number", "boolean").
+ * @returns {Validator<Primitive<T>, false>} Returns a Validator instance that validates input against the specified primitive type.  The validatedInput type will be the corresponding primitive type for the given `TypeOf` string (e.g., string for "string", number for "number").
  */
 function genericValidator<T extends TypeOf> (type: T) {
   return createValidator<Primitive<T>>((input) => Validator.isTypeOf(input, type));
