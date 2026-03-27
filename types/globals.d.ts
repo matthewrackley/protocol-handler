@@ -31,17 +31,27 @@ declare global {
     | 'patch'
     | 'delete';
 
-  type UpperMap = { a: "A", b: "B", c: "C", d: "D", e: "E", f: "F", g: "G", h: "H", i: "I", j: "J", k: "K", l: "L", m: "M", n: "N", o: "O", p: "P", q: "Q", r: "R", s: "S", t: "T", u: "U", v: "V", w: "W", x: "X", y: "Y", z: "Z" }
+  type UpperMap = { a: "A", b: "B", c: "C", d: "D", e: "E", f: "F", g: "G", h: "H", i: "I", j: "J", k: "K", l: "L", m: "M", n: "N", o: "O", p: "P", q: "Q", r: "R", s: "S", t: "T", u: "U", v: "V", w: "W", x: "X", y: "Y", z: "Z"; };
   type LowerMap = { [K in keyof UpperMap as UpperMap[K]]: K };
   type ChangeCase<T extends keyof UpperMap | keyof LowerMap> = T extends keyof UpperMap ? UpperMap[T] : T extends keyof LowerMap ? LowerMap[T] : never;
 
-  type Lowercase<T extends string> = T extends `${infer First extends keyof LowerMap | keyof UpperMap}${infer Rest}` ? `${First extends keyof LowerMap ? LowerMap[First] : First}${Rest}` : T;
-  type Capitalize<T extends string> = T extends `${infer First extends keyof UpperMap | keyof LowerMap}${infer Rest}` ? `${First extends keyof UpperMap ? UpperMap[First] : First}${Rest}` : T;
+  type Lowercase<T extends string> = T extends `${ infer First extends keyof LowerMap | keyof UpperMap }${ infer Rest }` ? `${ First extends keyof LowerMap ? LowerMap[First] : First }${ Rest }` : T;
+  type Capitalize<T extends string> = T extends `${ infer First extends keyof UpperMap | keyof LowerMap }${ infer Rest }` ? `${ First extends keyof UpperMap ? UpperMap[First] : First }${ Rest }` : T;
 
-  export type Primitive<T extends TypeOf> = T extends "string" ? string : T extends "number" ? number : T extends "boolean" ? boolean : T extends "bigint" ? bigint : T extends "symbol" ? symbol : T extends "object" ? object : T extends "function" ? Function : never;
-  export type TypeOf = "string" | "number" | "boolean" | "bigint" | "symbol" | "object" | "function";
-  export type ActualTypeOf = string | number | boolean | bigint | symbol | object | Function;
+  export type Primitive<T extends TypeOf> = T extends "string" ? string : T extends "number" ? number : T extends "boolean" ? boolean : T extends "bigint" ? bigint : T extends "symbol" ? symbol : T extends "object" ? object : T extends "function" ? Function : T extends "array" ? Array<Primitive<T>> : never;
+  export type TypeOf = "string" | "number" | "boolean" | "bigint" | "symbol" | "object" | "function" | "undefined" | "array";
+  export type ActualTypeOf = string | number | boolean | bigint | symbol | object | Function | Array;
 
+  export interface ValidatorOptions<B extends boolean> {
+    initialInput?: unknown;
+    optional?: B;
+    typeOf?: TypeOf;
+  }
+
+  export type InferOptional<T, B extends boolean = false> = B extends true ? T | undefined : T;
+
+  export type IsTypeOf = <I, TType extends TypeOf>(input: I, type: TType) => input is I extends Primitive<TType> ? I : never;
+  export type TypedError = <I, TType extends TypeOf> (input: I, expected: TType) => never;
   /**
    * Basic runtime validator.
    *
@@ -49,14 +59,36 @@ declare global {
    * - returns a validated/converted value
    * - throws an error
    */
-  export type Validator<T> = {
-    parse: <I>(input: I) => I extends T ? I : never;
+  export interface ValidateType<T, B extends boolean = false> {
+    validatedInput: InferOptional<T, B>;
+    #valid: boolean;
+    #optional: B;
+    typeOf: TypeOf;
+    get valid (): boolean;
+    get optional (): B;
+    validate: <I>(input: I) => input is I extends T ? I & T : never;
+    parse: <I>(input: I) => I extends T ? I & T : never;
   };
+  namespace Validator {
+    let string: import("../src/resolvers/validators").Validator<string>;
+    let number: import("../src/resolvers/validators").Validator<number>;
+    let boolean: import("../src/resolvers/validators").Validator<boolean>;
+    let bigint: import("../src/resolvers/validators").Validator<bigint>;
+    let symbol: import("../src/resolvers/validators").Validator<symbol>;
+    let object: import("../src/resolvers/validators").Validator<object>;
+    let func: import("../src/resolvers/validators").Validator<Function>;
+    let array: import("../src/resolvers/validators").Validator<Primitive<TypeOf>>;
+    let typeError: <TType extends TypeOf, I>(input: I, expected: TType) => never;
+    let typeOf: <I, TType extends TypeOf> (input: I, type: TType = typeof input as TType) => input is I extends Primitive<TType> ? I : never;
 
+  }
+
+  export type RequiredValidator<T> = import("../src/resolvers/validators").Validator<T, false>;
+  export type OptionalValidator<T> = import("../src/resolvers/validators").Validator<T, true>;
   /**
-   * Pulls the TypeScript type out of a Validator<T>.
+   * Pulls the TypeScript type out of a import("../src/resolvers/validators").Validator<T>.
    */
-  export type InferValidator<TValidator> = TValidator extends Validator<infer TValue>
+  export type InferValidator<TValidator> = TValidator extends import("../src/resolvers/validators").Validator<infer TValue>
     ? TValue
     : never;
 
@@ -69,15 +101,15 @@ declare global {
    *   search: stringValidator
    * }
    */
-  export type ValidatorShape<T = any> = Record<string, Validator<T>>;
+  export type ValidatorShape<T = any> = Record<string, import("../src/resolvers/validators").Validator<T>>;
 
   /**
    * Converts a validator object into its inferred object type.
    *
    * Example:
    * {
-   *   userID: Validator<number>,
-   *   search: Validator<string>
+   *   userID: import("../src/resolvers/validators").Validator<number>,
+   *   search: import("../src/resolvers/validators").Validator<string>
    * }
    *
    * becomes:
@@ -91,6 +123,7 @@ declare global {
   };
 
 
+  export type CreateValidator = <T, B extends boolean = false>(validate: <I>(input: I) => input is I extends T ? I & T : never, options?: ValidatorOptions<B>) => import("../src/resolvers/validators").Validator<T, B>
   /**
    * Extracts route param names from a path string.
    *
@@ -110,19 +143,16 @@ declare global {
    * "/users/:userID/posts/:postID"
    * =>
    * {
-   *   userID: Validator<any>;
-   *   postID: Validator<any>;
+   *   userID: import("../src/resolvers/validators").Validator<any>;
+   *   postID: import("../src/resolvers/validators").Validator<any>;
    * }
    */
   export type PathParamsValidatorShape<TPath extends string> = [PathParamNames<TPath>] extends [never]
     ? {}
     : {
-      [K in PathParamNames<TPath>]: Validator<any>;
+      [K in PathParamNames<TPath>]: import("../src/resolvers/validators").Validator<any>;
     };
 
-  export type FallbackToString = {
-    parse: <T>(input: T) => T;
-  };
   /**
    * Route request definition.
    *
