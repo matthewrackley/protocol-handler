@@ -329,7 +329,12 @@ function getAssertedType<T> (value: T) {
 }
 
 
-type OptionArray<T extends Exclude<StringEscapable, undefined | null>[]> = T extends [key: T[0], value: T[1]] ? [T, ...T[]] : never;
+type Pair<T> = [key: T, value: T];
+
+type RepeatingPairs<T> = [
+  ...first: Pair<T>,
+  ...rest: T[]
+];
 const results = (val: boolean) => val ? { ok: true, value: val } as const : yield new Error("Value is not a boolean") as CoerceFail;
 class TypeCoercion<T> {
   static isString: StringValidator = (value): value is string extends ToPrimitive<"string"> ? typeof value : never => {
@@ -352,7 +357,7 @@ class TypeCoercion<T> {
     return false;
   }
   static equalsAny = <T>(value: T, ...comparisons: T[]) => comparisons.includes(value);
-  static keyIsValue = <T extends Exclude<StringEscapable, undefined | null>[]>(...keyValues: OptionArray<T>) => Object.entries(keyValues).some(([key, val]) => key === val);
+  static keyIsValue = <T extends any>(...keyValues: RepeatingPairs<T>) => Object.entries(keyValues).some(([key, val]) => key === val);
   static isObject= <T>(value: T): value is T extends ToPrimitive<"object"> ? T : never => typeof value === "object" && value !== null;
   static isFunction= <T>(value: T): value is T extends ToPrimitive<"function"> ? T : never => typeof value === "function";
   static isBigInt= <T>(value: T): value is T extends ToPrimitive<"bigint"> ? T : never => typeof value === "bigint";
@@ -373,7 +378,7 @@ class TypeCoercion<T> {
   static nullCoercion = <T> (value: T) => value === null || value === "null" ? "null" : false;
 
   static isBigIntCandidate (str: string): boolean {
-    TypeCoercion.keyIsValue(str,)
+    TypeCoercion.keyIsValue(str, "", str, str, str, "") && !str.endsWith("n");
     const trimmed = str.trim();
     // Only digits, optional sign, no decimal, no 'n'
     if (/^[-+]?\d+$/.test(trimmed)) {
