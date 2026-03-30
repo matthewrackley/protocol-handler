@@ -165,19 +165,6 @@ declare global {
     validate: <I>(input: I) => input is I extends T ? I & T : never;
     parse: <I>(input: I) => I extends T ? I & T : never;
   }
-  namespace Validator {
-    let string: import("../src/resolvers/validators").Validator<string>;
-    let number: import("../src/resolvers/validators").Validator<number>;
-    let boolean: import("../src/resolvers/validators").Validator<boolean>;
-    let bigint: import("../src/resolvers/validators").Validator<bigint>;
-    let symbol: import("../src/resolvers/validators").Validator<symbol>;
-    let object: import("../src/resolvers/validators").Validator<object>;
-    let func: import("../src/resolvers/validators").Validator<Function>;
-    let array: import("../src/resolvers/validators").Validator<FromPrimitive<TypeOf>>;
-    let typeError: <TType extends TypeOf, I>(input: I, expected: TType) => never;
-    let typeOf: <I, TType extends TypeOf> (input: I, type: TType = typeof input as TType) => input is I extends FromPrimitive<TType> ? I : never;
-
-  }
 
   export type RequiredValidator<T> = import("../src/resolvers/validators").Validator<T, false>;
   export type OptionalValidator<T> = import("../src/resolvers/validators").Validator<T, true>;
