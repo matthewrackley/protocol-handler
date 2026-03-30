@@ -31,16 +31,112 @@ declare global {
     | 'patch'
     | 'delete';
 
-  type UpperMap = { a: "A", b: "B", c: "C", d: "D", e: "E", f: "F", g: "G", h: "H", i: "I", j: "J", k: "K", l: "L", m: "M", n: "N", o: "O", p: "P", q: "Q", r: "R", s: "S", t: "T", u: "U", v: "V", w: "W", x: "X", y: "Y", z: "Z"; };
-  type LowerMap = { [K in keyof UpperMap as UpperMap[K]]: K };
-  type ChangeCase<T extends keyof UpperMap | keyof LowerMap> = T extends keyof UpperMap ? UpperMap[T] : T extends keyof LowerMap ? LowerMap[T] : never;
+  export type FromValueKind<T extends ValueKind> =
+    T extends "null" ? null :
+    T extends "undefined" ? undefined :
+    T extends "boolean" ? boolean :
+    T extends "bigint" ? bigint :
+    T extends "number" ? number :
+    T extends "symbol" ? symbol :
+    T extends "object" ? object :
+    T extends "function" ? Function :
+    T extends "string" ? string :
+    T extends "array" ? Array<FromValueKind<any>>  :
+    never;
 
-  type Lowercase<T extends string> = T extends `${ infer First extends keyof LowerMap | keyof UpperMap }${ infer Rest }` ? `${ First extends keyof LowerMap ? LowerMap[First] : First }${ Rest }` : T;
-  type Capitalize<T extends string> = T extends `${ infer First extends keyof UpperMap | keyof LowerMap }${ infer Rest }` ? `${ First extends keyof UpperMap ? UpperMap[First] : First }${ Rest }` : T;
 
-  export type Primitive<T extends TypeOf> = T extends "string" ? string : T extends "number" ? number : T extends "boolean" ? boolean : T extends "bigint" ? bigint : T extends "symbol" ? symbol : T extends "object" ? object : T extends "function" ? Function : T extends "array" ? Array<Primitive<T>> : never;
-  export type TypeOf = "string" | "number" | "boolean" | "bigint" | "symbol" | "object" | "function" | "undefined" | "array";
-  export type ActualTypeOf = string | number | boolean | bigint | symbol | object | Function | Array;
+
+  export type IncludeAll<T extends readonly any[], U extends any> =
+    [U] extends [T[number]] ? T : never;
+
+  export type MustInclude = {
+    [K in ValueKind]: K extends "array" ? Exclude<FromValueKind<K>, undefined | null> : FromValueKind<K>;
+  };
+
+  export type RequireKeys<T, K extends PropertyKey> = T extends Record<K, unknown> ? T : never;
+
+  export type RuntimeValue<T = unknown> =
+    [T] extends ["null"] ? null :
+    [T] extends ["undefined"] ? undefined :
+    [T] extends ["boolean"] ? boolean :
+    [T] extends ["string"] ? string :
+    [T] extends ["bigint"] ? bigint :
+    [T] extends ["number"] ? number :
+    [T] extends ["symbol"] ? symbol :
+    [T] extends ["array"] ? PrimitiveArray :
+    [T] extends ["function"] ? Function :
+    [T] extends ["object"] ? object :
+    [T] extends [unknown] ? NonNullPrimitive :
+    never;
+
+  export type FromPrimitive<T = unknown> =
+    [T] extends [null] ? "null" :
+    [T] extends [undefined] ? "undefined" :
+    [T] extends [number] ? "number" :
+    [T] extends [bigint] ? "bigint" :
+    [T] extends [boolean] ? "boolean" :
+    [T] extends [string] ? "string" :
+    [T] extends [symbol] ? "symbol" :
+    [T] extends [PrimitiveArray] ? "array" :
+    [T] extends [Function] ? "function" :
+    [T] extends [object] ? "object" :
+    never;
+
+  export type ToPrimitive<T = unknown> =
+    T extends ValueKind ?
+      [T] extends ["number"] ? number :
+      [T] extends ["bigint"] ? bigint :
+      [T] extends ["boolean"] ? boolean :
+      [T] extends ["string"] ? string :
+      [T] extends ["symbol"] ? symbol :
+      [T] extends ["array"] ? PrimitiveArray :
+      [T] extends ["function"] ? Function :
+      [T] extends ["object"] ? object :
+      [T] extends ["null"] ? null :
+      [T] extends ["undefined"] ? undefined :
+    RuntimeValue<NonNullValueKind> :
+  never;
+
+
+  export interface FunctionDeclaration {
+    <T>(...args: [...T[]]): any;
+  }
+  export type ValidatorName<K extends ValueKind> = `is${K extends "bigint" ? "BigInt" : Capitalize<K>}`;
+
+  export type TypeOf = string | number | boolean | bigint | symbol | object | Function | null | undefined;
+  export type PrimitiveArray = [...Exclude<TypeOf, undefined | null>[]];
+  export type NonNullPrimitive = Exclude<TypeOf, undefined | null>;
+  export type NonNullValueKind = Exclude<ValueKind, "null" | "undefined">;
+  export type ValueKind = "string" | "number" | "boolean" | "bigint" | "symbol" | "object" | "function" | "undefined" | "array" | "null";
+
+  export type PrimitiveValidators<T> = {
+    [K in ValueKind as ValidatorName<K>]: <I>(value: I) => value is I extends ToPrimitive<T> ? I : never;
+  };
+  export type PrimitiveValidatorMap = {
+    [K in ValueKind as ValidatorName<K>]: <I>(value: I) => value is I extends ToPrimitive<K> ? I : never;
+  };
+  export type OrString<T> = T extends string | number | bigint | boolean | null | undefined ? `${ T }` | T : T;
+  export type BooleanLike = OrString<null | undefined | 0 | 0n | 1 | 1n | boolean> | "NaN" | number | `${ "-" | "" }${ number }${ "n" | "" }`;
+  export type NumberLike = `${ "-" | "" }${ number }${ "n" | "" }` | number | bigint;
+  export type NegativeNumberLike = `-${ number }`;
+
+  export type ToNegative<T extends number> = `${T extends Negative<T> ? "" : "-"}${T}`;
+  export type Negative<T extends number> = `-${T}` | T;
+  export type NumToString<N extends number> = `${N}`;
+  export type PosNeg<T extends `${ number }`> = T extends `${ infer V extends number }` ? V : never;
+  export type Falsey = OrString<0 | false | null | undefined> | "NaN";
+  export type ToBoolean<T extends OrString<"" | "NaN" | null | undefined | boolean | 0>> = "boolean";
+
+  export interface Primitives<T extends ValueKind> {
+    (): PrimitiveValidators<T>;
+    <I>(value: I): value is ToPrimitive<T>;
+  }
+  export interface Primitive<T extends Exclude<TypeOf, undefined | null>> {
+    (): ToPrimitive<T>;
+    type: T;
+    input: ToPrimitive<T>;
+    isValid<I>(value: I): value is I extends ToPrimitive<T> ? I : never;
+  }
 
   export interface ValidatorOptions<B extends boolean> {
     initialInput?: unknown;
@@ -50,7 +146,7 @@ declare global {
 
   export type InferOptional<T, B extends boolean = false> = B extends true ? T | undefined : T;
 
-  export type IsTypeOf = <I, TType extends TypeOf>(input: I, type: TType) => input is I extends Primitive<TType> ? I : never;
+  export type IsTypeOf = <I, TType extends TypeOf>(input: I, type: TType) => input is I extends FromPrimitive<TType> ? I : never;
   export type TypedError = <I, TType extends TypeOf> (input: I, expected: TType) => never;
   /**
    * Basic runtime validator.
@@ -68,7 +164,7 @@ declare global {
     get optional (): B;
     validate: <I>(input: I) => input is I extends T ? I & T : never;
     parse: <I>(input: I) => I extends T ? I & T : never;
-  };
+  }
   namespace Validator {
     let string: import("../src/resolvers/validators").Validator<string>;
     let number: import("../src/resolvers/validators").Validator<number>;
@@ -77,9 +173,9 @@ declare global {
     let symbol: import("../src/resolvers/validators").Validator<symbol>;
     let object: import("../src/resolvers/validators").Validator<object>;
     let func: import("../src/resolvers/validators").Validator<Function>;
-    let array: import("../src/resolvers/validators").Validator<Primitive<TypeOf>>;
+    let array: import("../src/resolvers/validators").Validator<FromPrimitive<TypeOf>>;
     let typeError: <TType extends TypeOf, I>(input: I, expected: TType) => never;
-    let typeOf: <I, TType extends TypeOf> (input: I, type: TType = typeof input as TType) => input is I extends Primitive<TType> ? I : never;
+    let typeOf: <I, TType extends TypeOf> (input: I, type: TType = typeof input as TType) => input is I extends FromPrimitive<TType> ? I : never;
 
   }
 

@@ -1,3 +1,4 @@
+import { WebSocketServer as WsServer } from 'ws';
 
 const defaultOptions = <B extends boolean>() => ({
   initialInput: undefined,
@@ -57,7 +58,7 @@ export class Validator<T, B extends boolean = false> implements ValidateType<T, 
   static symbol: Validator<symbol> = genericValidator("symbol");
   static object: Validator<object> = genericValidator("object");
   static func: Validator<Function> = genericValidator("function");
-  static array: Validator<Primitive<TypeOf>> = genericValidator("array");
+  static array: Validator<PrimitiveFromTypeof<TypeOf>> = genericValidator("array");
   /**
    * Static helper method to throw a standardized type error when validation fails.  This method is used internally by the parse method to provide consistent error messages when input does not match the expected type.
    * @template TType - The expected type of the input, as a string literal type (e.g., "string", "number").
@@ -77,9 +78,9 @@ export class Validator<T, B extends boolean = false> implements ValidateType<T, 
    * @template TType - The expected type of the input, as a string literal type (e.g., "string", "number").
    * @param {I} input - The input value to check.
    * @param {TType} [type=typeof input as TType] - The expected type of the input.  If not provided, it will be inferred from the input using typeof.
-   * @returns {input is I extends Primitive<TType> ? I : never} Returns true if the input is of the expected type, false otherwise.  The return type is a type predicate that narrows the type of the input if validation succeeds.
+   * @returns {input is I extends PrimitiveFromTypeof<TType> ? I : never} Returns true if the input is of the expected type, false otherwise.  The return type is a type predicate that narrows the type of the input if validation succeeds.
    */
-  static isTypeOf<I, TType extends TypeOf> (input: I, type: TType = typeof input as TType): input is I extends Primitive<TType> ? I : never {
+  static isTypeOf<I, TType extends TypeOf> (input: I, type: TType = typeof input as TType): input is I extends PrimitiveFromTypeof<TType> ? I : never {
     if (type === "number") {
       if (typeof input === 'string' && input.trim() !== '') {
         return (Number.isFinite(Number(input)) && !Number.isNaN(Number(input)))
@@ -179,6 +180,48 @@ export const createValidator: CreateValidator = function (
     return new Validator(validate, options);
   };
 
+const isConstructor = <T, C extends (new (...args: any) => any) | undefined> (value: T, constructor: C) => constructor && value instanceof constructor ? constructor as C extends undefined ? never : C : null;
+interface Primitive {
+  <T>(value: T): Primitive;
+  [value: Parameters<Primitive>[0]]: TypeOf | null;
+}
+[0, false, "", null, undefined, -0, 0n, NaN, "NaN", "-0", "0", "1", "0n", "true", "false", true, "null", "undefined", Infinity, -Infinity]
+
+const toString = <T>(value: T) => typeof value === "string" ? "string" : false;
+const toNumber = <T>(value: T) => isFinite(Number(value)) && !isNaN(Number(value)) ? "number" : false;
+const toBoolean = <T>(value: T) => [0, false, "", null, undefined, -0, 0n, NaN].includes(Boolean(value)) || typeof value === "boolean" ? "boolean" : false;
+const toArray = <T>(value: T) => Array.isArray(value) ? "array" : false;
+const toObject = <T>(value: T) => typeof value === "object" && value !== null ? "object" : false;
+const toFunction = <T>(value: T) => typeof value === "function" ? "function" : false;
+const toBigInt = <T>(value: T) => typeof value === "bigint" ? "bigint" : false;
+const toSymbol = <T>(value: T) => typeof value === "symbol" ? "symbol" : false;
+const toUndefined = <T> (value: T) => typeof value === "undefined" ? "undefined" : false;
+const toNull = <T>(value: T) => value === null || value === "null" ? "null" : false;
+
+function orString<T extends string | number | bigint | boolean | null | undefined>(value: T) {
+  return typeof value === "string" ? getPrimitive(String(value)) : getPrimitive(value);
+}
+
+
+
+const falseyValues = [0, false, "", null, undefined, -0, 0n, NaN] as const;
+
+
+const getPrimitive = <T> (value: T) => (toNumber(value) || toBigInt(value) || toNull(value) || toBoolean(value) || toString(value) || toArray(value) || toFunction(value) || toObject(value) || toSymbol(value) || toUndefined(value) || "any") as ToPrimitive<T>;
+
+const primitives: Primitives = <I = undefined> (type: I = undefined as I) => (type == undefined ? ({
+  isString: <V extends PrimitiveFromTypeof>(value: V) => toString(value) !== null,
+  isNumber: <V extends PrimitiveFromTypeof>(value: V) => toNumber(value) !== null,
+  isBoolean: <V extends PrimitiveFromTypeof>(value: V) => toBoolean(value) !== null,
+  isArray: <V extends PrimitiveFromTypeof>(value: V) => toArray(value) !== null,
+  isObject: <V extends PrimitiveFromTypeof>(value: V) => toObject(value) !== null,
+  isFunction: <V extends PrimitiveFromTypeof>(value: V) => toFunction(value) !== null,
+  isBigInt: <V extends PrimitiveFromTypeof>(value: V) => toBigInt(value) !== null,
+  isSymbol: <V extends PrimitiveFromTypeof>(value: V) => toSymbol(value) !== null,
+  isUndefined: <V extends PrimitiveFromTypeof>(value: V) => toUndefined(value) !== null
+}) as PrimitiveValidators : getPrimitive(type)) as I extends undefined ? PrimitiveValidators : ToPrimitive<I>;
+primitives(null)
+const val = typeof null;
 /**
  * Converts a value to its corresponding `TypeOf` string, with special handling for constructors.  If a constructor is provided and the value is an instance of that constructor, the constructor itself is returned.  Otherwise, the function checks for primitive types and returns the appropriate `TypeOf` string.  This utility is used to determine the type of a value for validation and error messaging purposes.
  * @template T - The type of the value to convert.
@@ -188,29 +231,21 @@ export const createValidator: CreateValidator = function (
  * @returns {C extends (new (...args: any) => any) ? C : TypeOf}  Returns the constructor if the value is an instance of it, or a `TypeOf` string representing the type of the value.  The return type is a conditional type that returns the constructor type if a constructor is provided and the value is an instance of it, or a `TypeOf` string otherwise.
  */
 export function convertToTypeOf<T, C extends (new (...args: any) => any) | undefined = undefined>(value: T, constructor: C = undefined as C): C extends (new (...args: any) => any) ? C : TypeOf {
-  const falsyValues = [0, false, "", null, undefined, -0, 0n, NaN];
-  const isConstructor = constructor && value instanceof constructor ? constructor : null;
-  const isString = typeof value === "string" ? "string" : null;
-  const isNumber = isFinite(Number(value)) && !isNaN(Number(value)) ? "number" : null;
-  const isBoolean = falsyValues.includes(Boolean(value)) || typeof value === "boolean" ? "boolean" : null;
-  const isArray = Array.isArray(value) ? "array" : null;
-  const isObject = typeof value === "object" && value !== null ? "object" : null;
-  const isFunction = typeof value === "function" ? "function" : null;
-  const isBigInt = typeof value === "bigint" ? "bigint" : null;
-  const isSymbol = typeof value === "symbol" ? "symbol" : null;
-  const isUndefined = typeof value === "undefined" ? "undefined" : null;
+
 
   return (isConstructor || isNumber || isBoolean || isArray || isObject || isFunction || isBigInt || isSymbol || isUndefined || isString || typeof value) as C extends (new (...args: any) => any) ? C : TypeOf;
 }
+import { WebSocketServer } from 'ws';
 
+const wss = new WebSocketServer({ port: 8080,  });
 /**
  * Generic validator factory that creates a validator for a specific primitive type.  This function takes a `TypeOf` string representing the expected type and returns a Validator instance that validates input against that type.  The validator will use the static isTypeOf method to check if the input matches the expected type, and it will handle type coercion for numbers and booleans to allow for common string representations of these types.
  * @template {TypeOf} T - The `TypeOf` string representing the expected type of the input (e.g., "string", "number").
  * @param {T} type - The `TypeOf` string representing the expected type of the input.  This should be one of the valid `TypeOf` values (e.g., "string", "number", "boolean").
- * @returns {Validator<Primitive<T>, false>} Returns a Validator instance that validates input against the specified primitive type.  The validatedInput type will be the corresponding primitive type for the given `TypeOf` string (e.g., string for "string", number for "number").
+ * @returns {Validator<PrimitiveFromTypeof<T>, false>} Returns a Validator instance that validates input against the specified primitive type.  The validatedInput type will be the corresponding primitive type for the given `TypeOf` string (e.g., string for "string", number for "number").
  */
 function genericValidator<T extends TypeOf> (type: T) {
-  return createValidator<Primitive<T>>((input) => Validator.isTypeOf(input, type));
+  return createValidator<PrimitiveFromTypeof<T>>((input) => Validator.isTypeOf(input, type));
 };
 
 
