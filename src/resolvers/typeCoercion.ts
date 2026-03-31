@@ -73,96 +73,107 @@ function isPrimitiveKey<K extends ValidatorName<ValueKind> | null = null> (type:
 
 }
 
+export const primitiveValidators: PrimitiveValidatorMap = {
+  isString<I> (this: Primitive<ToPrimitive<"string">>, value: I): value is I extends ToPrimitive<"string"> ? I : never { return typeof value === "string" && value !== ""; },
+  isNumber<I> (this: Primitive<ToPrimitive<"number">>, value: I): value is I extends ToPrimitive<"number"> ? I : never {
+    const testResult = parseNumericSmart(typeof value === "string" && value.trim().toLowerCase() || "");
+    return (typeof value === "number" && Number.isFinite(value)) ||
+      (testResult.ok && testResult.kind === "number");
+  },
+  isBoolean<I> (this: Primitive<ToPrimitive<"boolean">>, value: I): value is I extends ToPrimitive<"boolean"> ? I : never {
+    if (typeof value === "boolean") return true;
+    const str = typeof value === "string" && value.trim().toLowerCase() || null;
+    if (str) return ["0", "1", "true", "false"].includes(str.replace(/^[-+]?(0|1)n$/i, "$1"));
+    if (typeof value === "number" || typeof value === "bigint") return [0, 1].includes(Number(value));
+    return false;
+  },
+  isArray<I> (this: Primitive<ToPrimitive<"array">>, value: I): value is I extends ToPrimitive<"array"> ? I : never {
+    return Array.isArray(value) || (
+      typeof value === "object" &&
+      value !== null &&
+      Object.keys(value).every((key, i) => key === String(i))
+    );
+  },
+  isObject<I> (this: Primitive<ToPrimitive<"object">>, value: I): value is I extends ToPrimitive<"object"> ? I : never { return typeof value === "object" && value !== null && !Array.isArray(value); },
+  isFunction<I> (this: Primitive<ToPrimitive<"function">>, value: I): value is I extends ToPrimitive<"function"> ? I : never { return typeof value === "function"; },
+  isBigInt<I> (this: Primitive<ToPrimitive<"bigint">>, value: I): value is I extends ToPrimitive<"bigint"> ? I : never {
+    if (typeof value === "bigint") return true;
+    if (typeof value === "string" && typeof scientificToBigInt(value.trim().toLowerCase()) === "bigint") return true;
+    return false;
+  },
+  isSymbol<I>(this: Primitive<ToPrimitive<"symbol">>, value: I): value is I extends ToPrimitive<"symbol"> ? I : never { return typeof value === "symbol"; },
+  isUndefined<I>(this: Primitive<ToPrimitive<"undefined">>, value: I): value is I extends ToPrimitive<"undefined"> ? I : never { return value === "" || typeof value === "undefined"; },
+  isNull<I>(this: Primitive<ToPrimitive<"null">>, value: I): value is I extends ToPrimitive<"null"> ? I : never { return value === null || value === "null"; }
+};
+Object.freeze(primitiveValidators);
 
-
-function Primitives<T extends ValueKind> (): PrimitiveValidatorMap;
-function Primitives<T extends ValueKind, V = undefined>(type: T, input: V): ToPrimitive<T>;
-function Primitives<T extends ValueKind | undefined = undefined, V = unknown> (type?: T = undefined as T, input: V = undefined as V): T extends ValueKind ? ToPrimitive<T> : PrimitiveValidatorMap {
-
-  var primitive = {
-    type: type as T,
-    input,
-    isValid =
-  } as Primitive<Exclude<T, undefined>>;
-  function pr<TType extends Exclude<T, undefined>> (this: Primitive<TType>, input: V): Primitive<TType> {
-    if (type === undefined) throw new Error("Type must be specified for Primitive when no arguments are provided");
-    this.type = type;
-    this.input = input;
-    this.isValid = (value: V): value is V extends ToPrimitive<TType> ? V : never => {
-
-    }
-    this
-
-
-  };
-  pr.bind(primitive);
-  const primitiveValidators = {
-    isString: <I> (value: I): value is I extends ToPrimitive<"string"> ? I : never => typeof value === "string" && value !== "",
-    isNumber: <I> (value: I): value is I extends ToPrimitive<"number"> ? I : never => {
-      const testResult = parseNumericSmart(typeof value === "string" && value.trim().toLowerCase() || "");
-      return (typeof value === "number" && Number.isFinite(value)) ||
-        (testResult.ok && testResult.kind === "number");
-    },
-    isBoolean: <I> (value: I): value is I extends ToPrimitive<"boolean"> ? I : never => {
-      if (typeof value === "boolean") return true;
-      const str = typeof value === "string" && value.trim() || null;
-      if (str) {
-        return str === "NaN" || ["0", "1", "true", "false", "null", "undefined", ""].includes(str.toLowerCase());
-      }
-      if (typeof value === "number" || typeof value === "bigint") {
-        return typeof value === "bigint" ? value === 0n || value === 1n : value === 0 || value === 1;
-      }
-      return false;
-    },
-    isArray: <I> (value: I): value is I extends ToPrimitive<"array"> ? I : never => {
-      return Array.isArray(value) || (
-        typeof value === "object" &&
-        value !== null &&
-        Object.keys(value).every((key, i) => key === String(i))
-      );
-    },
-    isObject: <I> (value: I): value is I extends ToPrimitive<"object"> ? I : never => {
-      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        if (Object.keys(value).every(key => typeof key === "number")) {
-          return true;
-        }
-      }
-      return false;
-    },
-    isFunction: <I> (value: I): value is I extends ToPrimitive<"function"> ? I : never => typeof value === "function",
-    isBigInt: <I> (value: I): value is I extends ToPrimitive<"bigint"> ? I : never => {
-      if (typeof value === "bigint") return true;
-      const testResult = (function(){
-          const b = scientificToBigInt(typeof value === "string" && value.trim().toLowerCase() || "");
-          if (b !== null) {
-            return {
-              get ok() { return true as const },
-              get kind() { return "bigint" as const },
-              get value() { return b },
-              get normalized() { return b.toString() },
-            } as NumericResult;
-          };
-          return { ok: false } as NumericResult;
-        })();
-      if (testResult.ok && testResult.kind === "bigint") return true;
-      return false;
-    },
-    isSymbol: <I> (value: I): value is I extends ToPrimitive<"symbol"> ? I : never => typeof value === "symbol",
-    isUndefined: <I> (value: I): value is I extends ToPrimitive<"undefined"> ? I : never => value === "" || typeof value === "undefined",
-    isNull: <I> (value: I): value is I extends ToPrimitive<"null"> ? I : never => value === null || value === "null"
-  };
-  type ParamOwner<S extends ValueKind> = S extends T ? S : never;
-  Object.freeze(primitiveValidators);
-  const keys = Object.keys(primitiveValidators) as (keyof PrimitiveValidatorMap)[];
-
-  const primitiveKey = (type !== undefined ? `is${ type === "bigint" ? "BigInt" : capitalize(type) }` : null) as ValidatorName<Exclude<T, undefined>> | null;
-  var primitiveGuard = {} as PrimitiveValidatorMap[ValidatorName<Exclude<T, undefined>>];
-
-  if (primitiveKey) primitiveGuard = primitiveValidators[primitiveKey];
-  if (input !== undefined && primitiveGuard(input)) {
-
+function determineTypeOfValue<P extends TypeOf | PrimitiveArray, T extends NonNullValueKind> (value: P, desiredType?: T) {
+  let returnValue: P extends ToPrimitive<T> ? P : P;
+  let int, num, bool, str, sym, func, obj, arr;
+  if (typeof value === "undefined") return undefined as P extends ToPrimitive<T> ? P : P;
+  if (typeof value === "bigint") {
+    int = value as P & bigint;
   }
-  return primitiveValidators as T extends ValueKind ? never : PrimitiveValidatorMap;
+  if (typeof value === "number") {
+    num = value as P & number;
+  }
+  if (typeof value === "boolean") {
+    bool = value as P & boolean;
+  }
+  if (typeof value === "string") {
+    const str = value.trim().toLowerCase();
+    const bool = ["0", "1", "true", "false"].includes(str.replace(/^[-+]?(0|1)n$/i, "$1"));
+    const num = Number(str.replace(/^[-+]?(0|1)n$/i, "$1"));
+  }
+  if (typeof value === "symbol") {
+    sym = value as P & symbol;
+  }
+  if (typeof value === "function") {
+    func = value as P & Function;
+  }
+  if (typeof value === "object") {
+    if (value === null) {
+      obj = value as P & null;
+    } else {
+      if (Array.isArray(value)) {
+        arr = [...value] as P & Array<P[keyof P]>;
+      }
+      if (value.hasOwnProperty("length") && Object.keys(value).every((key, i) => key === String(i))) {
+        arr = Array.from(value as ArrayLike<P[keyof P]>) as P & P[keyof P][];
+      }
+      obj = value as P & object;
+    }
+  }
+  let validator = {} as PrimitiveValidator<T>;
+  if (desiredType) {
+    const validatorKey = (`is${ desiredType === "bigint" ? "BigInt" : capitalize(desiredType) }`) as ValidatorName<T>;
+    validator = primitiveValidators[validatorKey] as PrimitiveValidator<T>;
+  }
+}
+
+var Primitive: PrimitiveConstructor;
+var Primitive: PrimitiveConstructor;
+var Primitive: PrimitiveConstructor = function <T extends NonNullValueKind, V extends NonNullPrimitive> (type: T, input?: V): V extends unknown ? Primitive<ToPrimitive<T>> : Primitive<V, T> {
+
+  const primitive  = function <V extends NonNullPrimitive> (this: Primitive<V, T>, input: V): V {
+    const primitiveKey = (`is${ type === "bigint" ? "BigInt" : capitalize(type) }`) as ValidatorName<typeof type>;
+    const isValid = primitiveValidators[primitiveKey] as PrimitiveValidator<T>;
+
+    this.input = input as V extends ToPrimitive<T> ? V : never;
+    this.isValid = isValid.bind(this) as Primitive<V, T>["isValid"];
+    return this.input;
+  }
+  primitive.type = type;
+  primitive.input = input;
+
+  const primitiveKey = (`is${ type === "bigint" ? "BigInt" : capitalize(type) }`) as ValidatorName<typeof type>;
+  const primitiveGuard =  primitiveValidators[primitiveKey] as PrimitiveValidatorMap[ValidatorName<typeof type>];
+
+  var Primitive = primitive as Primitive<T, Exclude<V, unknown>>;
+  if (input !== undefined && primitiveGuard(input)) {
+    return primitive as V extends unknown ? Primitive<ToPrimitive<T>> : never;
+  }
+  return primitive as V extends unknown ? never : Primitive<V, T>;
 };
 
 function isInvalid<T>(
@@ -190,6 +201,14 @@ const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER);
 const INT_REGEX = /^(?<value>[-+]?\d+(?:[eE][+-]?\d+)?)n?$/;
 const BIGINT_REGEX = /^(?<value>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
+const THRESHOLD = Number.MAX_SAFE_INTEGER * 0.9;
+
+function toSafeNumeric(value: number): number | bigint {
+  if (Math.abs(value) >= THRESHOLD) {
+    return BigInt(value);
+  }
+  return value;
+}
 
 function scientificToBigInt(str: string): bigint | null {
   const m = str.match(/^(?<sign>[+-]?)(?<int>\d+)(?:\.(?<frac>\d+))?(?:e(?<exp>[+-]?\d+))?$/);

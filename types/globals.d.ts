@@ -105,14 +105,14 @@ declare global {
 
   export type TypeOf = string | number | boolean | bigint | symbol | object | Function | null | undefined;
   export type PrimitiveArray = [...Exclude<TypeOf, undefined | null>[]];
-  export type NonNullPrimitive = Exclude<TypeOf, undefined | null>;
+  export type NonNullPrimitive = Exclude<TypeOf, undefined | null> | PrimitiveArray;
   export type NonNullValueKind = Exclude<ValueKind, "null" | "undefined">;
   export type ValueKind = "string" | "number" | "boolean" | "bigint" | "symbol" | "object" | "function" | "undefined" | "array" | "null";
 
-  export type PrimitiveValidators<T> = {
+  export type PrimitiveValidator<T extends ValueKind> = {
     [K in ValueKind as ValidatorName<K>]: <I>(value: I) => value is I extends ToPrimitive<T> ? I : never;
-  };
-  export type PrimitiveValidatorMap = {
+  }[ValidatorName<T>];
+  export type PrimitiveValidatorMap<T extends ValueMap = unknown> =  {
     [K in ValueKind as ValidatorName<K>]: <I>(value: I) => value is I extends ToPrimitive<K> ? I : never;
   };
   export type OrString<T> = T extends string | number | bigint | boolean | null | undefined ? `${ T }` | T : T;
@@ -131,11 +131,16 @@ declare global {
     (): PrimitiveValidators<T>;
     <I>(value: I): value is ToPrimitive<T>;
   }
-  export interface Primitive<T extends Exclude<TypeOf, undefined | null>> {
-    (): ToPrimitive<T>;
-    type: T;
-    input: ToPrimitive<T>;
-    isValid<I>(value: I): value is I extends ToPrimitive<T> ? I : never;
+  export interface Primitive<P extends NonNullPrimtive, V extends NonNullValueKind = NonNullValueKind> {
+    (): P;
+    type: V;
+    input: P extends ToPrimitive<V> ? P : never;
+    isValid<I>(value: I): value is I extends ToPrimitive<V> ? I : never;
+  }
+  export interface PrimitiveConstructor {
+    <P extends NonNullValueKind, V extends NonNullPrimitive | unknown = unknown>(type: P): Primitive<ToPrimitive<P>>;
+    <P extends NonNullValueKind, V extends NonNullPrimitive | unknown = unknown> (type: P, input?: V): V extends unknown ? Primitive<ToPrimitive<P>> : Primitive<P, V>;
+
   }
 
   export interface ValidatorOptions<B extends boolean> {
